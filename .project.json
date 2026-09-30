@@ -5,7 +5,7 @@
   "profile": "dotnet-product",
   "lifecycle": "active",
   "verification": {
-    "command": "dotnet build && npm run build",
+    "command": "python3 scripts/verify_bootstrap.py && openspec validate --all --strict --no-interactive",
     "gate_runtime": "driftwatchdog",
     "evidence_status": "planned"
   },

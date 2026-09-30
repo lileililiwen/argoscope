@@ -19,8 +19,9 @@ openspec/changes/github-portfolio-momentum-mvp/ is the first implementation pack
 - gh repo edit set the approved description, homepage https://github.com/lileililiwen/argoscope, and topics github-analytics, open-source, portfolio-analytics, repository-metrics.
 - The shared Workspace Governance GitHub metadata publisher returned metadata_verified with no differences and recorded publication in .project.json.
 - gh repo view --json nameWithOwner,description,homepageUrl,visibility,repositoryTopics,url reported public lileililiwen/argoscope and matching description/homepage/topics. git ls-remote --heads origin main returned f0886092d42d67bab6552c84ce03c66cb7a1c2ad refs/heads/main.
-- OpenSpec strict validation passed (1 change, 0 failures). Workspace Governance reported DISCOVERED_UNREGISTERED and CI_MISSING; it also reported the unrelated pre-existing missing directory jenkins-bootstrap. Central registry changes are outside this bootstrap.
-- No application build, tests, live GitHub API request, runtime, or screenshot has been run. Capture is blocked because there is no application source tree; docs/assets/capture-plan.md records the next action. CI awaits an executable application source tree.
+- OpenSpec strict validation passed (1 change, 0 failures). Repository CI now runs bootstrap metadata checks and strict OpenSpec validation; .NET/web builds are conditional on those source manifests existing. No app build is currently available.
+- Workspace Governance reported DISCOVERED_UNREGISTERED for the two new projects; this is expected under the workspace discovery policy and does not require a registry edit. It also reports unrelated pre-existing missing directory jenkins-bootstrap.
+- No application tests, live GitHub API request, runtime, or screenshot has been run. Capture is blocked because there is no application source tree; docs/assets/capture-plan.md records the next action.
 
 ## Next actions
 
