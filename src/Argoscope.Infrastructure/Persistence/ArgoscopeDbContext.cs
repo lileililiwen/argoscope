@@ -1,3 +1,4 @@
+using Argoscope.Domain.Decisions;
 using Argoscope.Domain.Engagement;
 using Argoscope.Domain.Memberships;
 using Argoscope.Domain.Packages;
@@ -23,6 +24,9 @@ public sealed class ArgoscopeDbContext : DbContext
     public DbSet<ScoreConfiguration> ScoreConfigurations => Set<ScoreConfiguration>();
     public DbSet<PackageAssociation> PackageAssociations => Set<PackageAssociation>();
     public DbSet<PackageObservation> PackageObservations => Set<PackageObservation>();
+    public DbSet<DecisionEntry> DecisionEntries => Set<DecisionEntry>();
+    public DbSet<DecisionRevision> DecisionRevisions => Set<DecisionRevision>();
+    public DbSet<DecisionEvidenceReference> DecisionEvidenceReferences => Set<DecisionEvidenceReference>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -35,6 +39,9 @@ public sealed class ArgoscopeDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ScoreConfigurationConfiguration());
         modelBuilder.ApplyConfiguration(new PackageAssociationConfiguration());
         modelBuilder.ApplyConfiguration(new PackageObservationConfiguration());
+        modelBuilder.ApplyConfiguration(new DecisionEntryConfiguration());
+        modelBuilder.ApplyConfiguration(new DecisionRevisionConfiguration());
+        modelBuilder.ApplyConfiguration(new DecisionEvidenceReferenceConfiguration());
     }
 }
 
@@ -221,5 +228,67 @@ public sealed class PackageObservationConfiguration : IEntityTypeConfiguration<D
         b.Property(p => p.DiagnosticCode).HasMaxLength(100);
         b.HasIndex(p => new { p.PackageAssociationId, p.Unit, p.Window, p.WindowStartUtc, p.WindowEndUtc }).IsUnique();
         b.HasIndex(p => p.PackageAssociationId);
+    }
+}
+
+public sealed class DecisionEntryConfiguration : IEntityTypeConfiguration<Domain.Decisions.DecisionEntry>
+{
+    public void Configure(EntityTypeBuilder<Domain.Decisions.DecisionEntry> b)
+    {
+        b.ToTable("decision_entries");
+        b.HasKey(d => d.Id);
+        b.Property(d => d.Id).HasConversion(v => v.Value, v => Domain.Common.Id<Domain.Decisions.DecisionEntry>.From(v));
+        b.Property(d => d.PortfolioId).HasConversion(v => v.Value, v => Domain.Common.Id<Domain.Portfolios.Portfolio>.From(v));
+        b.Property(d => d.RepositoryId).HasConversion(v => v.HasValue ? v.Value.Value : (Guid?)null, v => v.HasValue ? Domain.Common.Id<Domain.Repositories.Repository>.From(v.Value) : (Domain.Common.Id<Domain.Repositories.Repository>?)null);
+        b.Property(d => d.DecisionType).HasConversion<int>();
+        b.Property(d => d.DecisionDate).IsRequired();
+        b.Property(d => d.Rationale).HasMaxLength(DecisionEntry.MaxRationaleLength).IsRequired();
+        b.Property(d => d.ReviewDate);
+        b.Property(d => d.RevisionNumber).IsRequired();
+        b.Property(d => d.IdempotencyKey).HasMaxLength(DecisionEntry.MaxIdempotencyKeyLength);
+        b.Property(d => d.DeletedAtUtc);
+        b.Property(d => d.CreatedAtUtc).IsRequired();
+        b.Property(d => d.UpdatedAtUtc).IsRequired();
+        b.HasIndex(d => new { d.PortfolioId, d.IdempotencyKey })
+            .IsUnique()
+            .HasFilter(null);
+        b.HasIndex(d => d.PortfolioId);
+        b.HasIndex(d => d.RepositoryId);
+    }
+}
+
+public sealed class DecisionRevisionConfiguration : IEntityTypeConfiguration<Domain.Decisions.DecisionRevision>
+{
+    public void Configure(EntityTypeBuilder<Domain.Decisions.DecisionRevision> b)
+    {
+        b.ToTable("decision_revisions");
+        b.HasKey(r => r.Id);
+        b.Property(r => r.Id).HasConversion(v => v.Value, v => Domain.Common.Id<Domain.Decisions.DecisionRevision>.From(v));
+        b.Property(r => r.DecisionEntryId).HasConversion(v => v.Value, v => Domain.Common.Id<Domain.Decisions.DecisionEntry>.From(v));
+        b.Property(r => r.RevisionNumber).IsRequired();
+        b.Property(r => r.Action).HasConversion<int>();
+        b.Property(r => r.ActorId).HasMaxLength(100).IsRequired();
+        b.Property(r => r.OccurredAtUtc).IsRequired();
+        b.Property(r => r.BeforeJson).HasColumnType("text");
+        b.Property(r => r.AfterJson).HasColumnType("text").IsRequired();
+        b.Property(r => r.Note).HasMaxLength(2000);
+        b.HasIndex(r => new { r.DecisionEntryId, r.RevisionNumber }).IsUnique();
+        b.HasIndex(r => r.DecisionEntryId);
+    }
+}
+
+public sealed class DecisionEvidenceReferenceConfiguration : IEntityTypeConfiguration<Domain.Decisions.DecisionEvidenceReference>
+{
+    public void Configure(EntityTypeBuilder<Domain.Decisions.DecisionEvidenceReference> b)
+    {
+        b.ToTable("decision_evidence_references");
+        b.HasKey(e => e.Id);
+        b.Property(e => e.Id).HasConversion(v => v.Value, v => Domain.Common.Id<Domain.Decisions.DecisionEvidenceReference>.From(v));
+        b.Property(e => e.DecisionRevisionId).HasConversion(v => v.Value, v => Domain.Common.Id<Domain.Decisions.DecisionRevision>.From(v));
+        b.Property(e => e.Kind).HasConversion<int>();
+        b.Property(e => e.ReferenceId).IsRequired();
+        b.Property(e => e.Label).HasMaxLength(DecisionEvidenceReference.MaxLabelLength);
+        b.HasIndex(e => new { e.DecisionRevisionId, e.ReferenceId, e.Kind }).IsUnique();
+        b.HasIndex(e => e.DecisionRevisionId);
     }
 }

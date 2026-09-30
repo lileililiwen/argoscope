@@ -45,6 +45,9 @@ public interface IPackageAssociationStore
 
 public interface IPackageObservationStore
 {
+    /// <summary>Find a single observation by its primary key. Used for evidence-reference resolution.</summary>
+    Task<PackageObservation?> FindByIdAsync(Id<PackageObservation> id, CancellationToken cancellationToken);
+
     /// <summary>Find the observation for the (association, unit, window, window) tuple — the idempotency key.</summary>
     Task<PackageObservation?> FindAsync(
         Id<PackageAssociation> associationId,

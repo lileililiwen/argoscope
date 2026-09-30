@@ -58,6 +58,7 @@ public interface IMembershipStore
 
 public interface IMetricSnapshotStore
 {
+    Task<MetricSnapshot?> FindByIdAsync(Id<MetricSnapshot> id, CancellationToken cancellationToken);
     Task<MetricSnapshot?> FindAsync(Id<Repository> repositoryId, string metricName, DateOnly date, string providerVersion, CancellationToken cancellationToken);
     Task UpsertAsync(MetricSnapshot snapshot, CancellationToken cancellationToken);
     Task<IReadOnlyList<MetricSnapshot>> ListByRepositoryAsync(Id<Repository> repositoryId, CancellationToken cancellationToken);

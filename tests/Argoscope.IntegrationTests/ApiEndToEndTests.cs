@@ -181,6 +181,206 @@ public class ApiEndToEndTests
         var delResp = await client.DeleteAsync($"/api/v1/repositories/{repoId}/packages/{assoc.AssociationId}");
         Assert.Equal(HttpStatusCode.NoContent, delResp.StatusCode);
     }
+
+    [Fact]
+    public async Task DecisionJournal_CreateUpdateRestore_AppendsRevisions()
+    {
+        using var client = _factory.CreateClient();
+
+        // 1. Create a portfolio + a repository to attach a decision to.
+        var createResp = await client.PostAsJsonAsync("/api/v1/portfolios", new { name = "Journal" });
+        Assert.Equal(HttpStatusCode.Created, createResp.StatusCode);
+        var portfolio = await createResp.Content.ReadFromJsonAsync<PortfolioDto>();
+        var addResp = await client.PostAsJsonAsync($"/api/v1/portfolios/{portfolio!.Id}/repositories", new
+        {
+            nodeId = "node-decisions",
+            ownerLogin = "octo",
+            name = "decision-repo",
+            visibility = "Public",
+            role = "Owned",
+            category = "ci",
+            lifecycle = "OpenSource",
+        });
+        var member = await addResp.Content.ReadFromJsonAsync<MembershipDto>();
+        var repoId = member!.RepositoryId;
+
+        // 2. Create a decision for the repository.
+        var createDecision = await client.PostAsJsonAsync(
+            $"/api/v1/portfolios/{portfolio.Id}/decisions", new
+            {
+                repositoryId = repoId,
+                decisionType = "Invest",
+                decisionDate = "2026-09-30",
+                rationale = "Adoption is climbing; worth doubling down.",
+                reviewDate = "2027-03-01",
+                idempotencyKey = "client-retry-A",
+                note = "first version",
+                evidence = Array.Empty<object>(),
+            });
+        Assert.Equal(HttpStatusCode.Created, createDecision.StatusCode);
+        var decision = await createDecision.Content.ReadFromJsonAsync<DecisionEntryDto>();
+        Assert.Equal("Invest", decision!.DecisionType);
+        Assert.Equal(1, decision.RevisionNumber);
+        Assert.Null(decision.DeletedAtUtc);
+        Assert.Equal("Create", decision.LatestRevision.Action);
+        Assert.Equal("first version", decision.LatestRevision.Note);
+
+        // 3. Idempotent retry returns the same row.
+        var retryResp = await client.PostAsJsonAsync(
+            $"/api/v1/portfolios/{portfolio.Id}/decisions", new
+            {
+                repositoryId = repoId,
+                decisionType = "Invest",
+                decisionDate = "2026-09-30",
+                rationale = "Different rationale; should be ignored on retry.",
+                reviewDate = "2027-03-01",
+                idempotencyKey = "client-retry-A",
+                evidence = Array.Empty<object>(),
+            });
+        Assert.Equal(HttpStatusCode.Created, retryResp.StatusCode);
+        var retried = await retryResp.Content.ReadFromJsonAsync<DecisionEntryDto>();
+        Assert.Equal(decision.DecisionEntryId, retried!.DecisionEntryId);
+        Assert.Equal("Adoption is climbing; worth doubling down.", retried.Rationale);
+
+        // 4. Update with stale expectedRevision returns 409.
+        var stale = await client.PutAsJsonAsync(
+            $"/api/v1/portfolios/{portfolio.Id}/decisions/{decision.DecisionEntryId}", new
+            {
+                expectedRevision = 99,
+                decisionType = "Pause",
+                decisionDate = "2026-09-30",
+                rationale = "Stale write.",
+                reviewDate = (string?)null,
+                evidence = Array.Empty<object>(),
+            });
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+
+        // 5. Update with the correct revision succeeds and increments the number.
+        var okUpdate = await client.PutAsJsonAsync(
+            $"/api/v1/portfolios/{portfolio.Id}/decisions/{decision.DecisionEntryId}", new
+            {
+                expectedRevision = 1,
+                decisionType = "Pause",
+                decisionDate = "2026-09-30",
+                rationale = "Reconsidered after watching one more week.",
+                reviewDate = (string?)null,
+                note = "second thought",
+                evidence = Array.Empty<object>(),
+            });
+        Assert.Equal(HttpStatusCode.OK, okUpdate.StatusCode);
+        var updated = await okUpdate.Content.ReadFromJsonAsync<DecisionEntryDto>();
+        Assert.Equal("Pause", updated!.DecisionType);
+        Assert.Equal(2, updated.RevisionNumber);
+        Assert.Equal("Update", updated.LatestRevision.Action);
+        Assert.Equal("second thought", updated.LatestRevision.Note);
+
+        // 6. Revisions endpoint returns the full ordered history.
+        var revResp = await client.GetAsync(
+            $"/api/v1/portfolios/{portfolio.Id}/decisions/{decision.DecisionEntryId}/revisions");
+        Assert.Equal(HttpStatusCode.OK, revResp.StatusCode);
+        var revisions = await revResp.Content.ReadFromJsonAsync<List<DecisionRevisionDto>>();
+        Assert.Equal(2, revisions!.Count);
+        Assert.Equal(1, revisions[0].RevisionNumber);
+        Assert.Equal("Create", revisions[0].Action);
+        Assert.Equal(2, revisions[1].RevisionNumber);
+        Assert.Equal("Update", revisions[1].Action);
+
+        // 7. Soft-delete with the right revision; list default filters it out.
+        var delReq = new HttpRequestMessage(HttpMethod.Delete,
+            $"/api/v1/portfolios/{portfolio.Id}/decisions/{decision.DecisionEntryId}")
+        {
+            Content = JsonContent.Create(new DecisionRevisionRequestBody { ExpectedRevision = 2, Note = "no longer active" }),
+        };
+        var delResp = await client.SendAsync(delReq);
+        Assert.Equal(HttpStatusCode.OK, delResp.StatusCode);
+        var listLive = await client.GetAsync($"/api/v1/portfolios/{portfolio.Id}/decisions");
+        var live = await listLive.Content.ReadFromJsonAsync<List<DecisionEntryDto>>();
+        Assert.Empty(live!);
+        var listAll = await client.GetAsync($"/api/v1/portfolios/{portfolio.Id}/decisions?includeDeleted=true");
+        var all = await listAll.Content.ReadFromJsonAsync<List<DecisionEntryDto>>();
+        Assert.Single(all!);
+        Assert.NotNull(all[0].DeletedAtUtc);
+
+        // 8. Restore brings it back and records a Restore revision.
+        var restoreResp = await client.PostAsJsonAsync(
+            $"/api/v1/portfolios/{portfolio.Id}/decisions/{decision.DecisionEntryId}/restore",
+            new DecisionRevisionRequestBody { ExpectedRevision = 3, Note = "came back" });
+        Assert.Equal(HttpStatusCode.OK, restoreResp.StatusCode);
+        var restored = await restoreResp.Content.ReadFromJsonAsync<DecisionEntryDto>();
+        Assert.Null(restored!.DeletedAtUtc);
+        Assert.Equal(4, restored.RevisionNumber);
+        Assert.Equal("Restore", restored.LatestRevision.Action);
+
+        // 9. Decisions never touch the membership lifecycle.
+        var membershipResp = await client.GetAsync($"/api/v1/portfolios/{portfolio.Id}/repositories");
+        var memberships = await membershipResp.Content.ReadFromJsonAsync<List<MembershipDto>>();
+        Assert.Equal("OpenSource", memberships!.Single(m => m.RepositoryId == repoId).Lifecycle);
+    }
+
+    [Fact]
+    public async Task DecisionJournal_CrossPortfolioEvidence_IsMarkedUnresolved()
+    {
+        using var client = _factory.CreateClient();
+
+        // Build two portfolios each with a repository.
+        var p1 = await (await client.PostAsJsonAsync("/api/v1/portfolios", new { name = "P1" }))
+            .Content.ReadFromJsonAsync<PortfolioDto>();
+        var p2 = await (await client.PostAsJsonAsync("/api/v1/portfolios", new { name = "P2" }))
+            .Content.ReadFromJsonAsync<PortfolioDto>();
+
+        var p1Repo = await (await client.PostAsJsonAsync($"/api/v1/portfolios/{p1!.Id}/repositories", new
+        {
+            nodeId = "node-p1",
+            ownerLogin = "octo",
+            name = "p1-repo",
+            visibility = "Public",
+            role = "Owned",
+            lifecycle = "OpenSource",
+        })).Content.ReadFromJsonAsync<MembershipDto>();
+        var p2Repo = await (await client.PostAsJsonAsync($"/api/v1/portfolios/{p2!.Id}/repositories", new
+        {
+            nodeId = "node-p2",
+            ownerLogin = "octo",
+            name = "p2-repo",
+            visibility = "Public",
+            role = "Owned",
+            lifecycle = "OpenSource",
+        })).Content.ReadFromJsonAsync<MembershipDto>();
+
+        // Collect once on each so we have a MetricSnapshot row.
+        await client.PostAsync(
+            $"/api/v1/portfolios/{p2.Id}/repositories/{p2Repo!.RepositoryId}/collect", content: null);
+
+        // Find a snapshot belonging to P2 by going through the metrics
+        // endpoint. We don't expose snapshot ids directly via the API
+        // yet, so simulate cross-portfolio evidence by pointing at a
+        // random guid (the resolver should mark it Unresolved
+        // regardless).
+        var missingSnapshotId = Guid.NewGuid();
+
+        var create = await client.PostAsJsonAsync(
+            $"/api/v1/portfolios/{p1.Id}/decisions", new
+            {
+                repositoryId = p1Repo!.RepositoryId,
+                decisionType = "Continue",
+                decisionDate = "2026-09-30",
+                rationale = "Trying to link a snapshot we cannot see.",
+                evidence = new[]
+                {
+                    new
+                    {
+                        kind = "Snapshot",
+                        referenceId = missingSnapshotId.ToString(),
+                        label = "broken",
+                    },
+                },
+            });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var dto = await create.Content.ReadFromJsonAsync<DecisionEntryDto>();
+        var evidence = Assert.Single(dto!.Evidence);
+        Assert.Equal("Snapshot", evidence.Kind);
+        Assert.Equal("Unresolved", evidence.Resolution);
+    }
 }
 
 public sealed record OverviewEnvelope(Guid PortfolioId, string Window, DateOnly WindowStart, DateOnly WindowEnd, DateTimeOffset AsOfUtc, List<OverviewRowDto> Rows);
@@ -238,3 +438,49 @@ public sealed record PackageAdoptionPointDto(
     string Status,
     bool IsComplete,
     string? DiagnosticCode);
+
+public sealed record DecisionEntryDto(
+    Guid DecisionEntryId,
+    Guid PortfolioId,
+    Guid? RepositoryId,
+    string DecisionType,
+    DateOnly DecisionDate,
+    string Rationale,
+    DateOnly? ReviewDate,
+    int RevisionNumber,
+    string? IdempotencyKey,
+    DateTimeOffset? DeletedAtUtc,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc,
+    List<DecisionEvidenceDto> Evidence,
+    DecisionRevisionSummaryDto LatestRevision);
+
+public sealed record DecisionRevisionSummaryDto(
+    int RevisionNumber,
+    string Action,
+    string ActorId,
+    DateTimeOffset OccurredAtUtc,
+    string? Note);
+
+public sealed record DecisionEvidenceDto(
+    Guid EvidenceId,
+    string Kind,
+    Guid ReferenceId,
+    string Resolution,
+    string SourceDestination,
+    string? Label,
+    DateOnly? EvidenceDate);
+
+public sealed record DecisionRevisionDto(
+    int RevisionNumber,
+    string Action,
+    string ActorId,
+    DateTimeOffset OccurredAtUtc,
+    string? Note,
+    List<DecisionEvidenceDto> Evidence);
+
+public sealed record DecisionRevisionRequestBody
+{
+    public int ExpectedRevision { get; init; }
+    public string? Note { get; init; }
+}

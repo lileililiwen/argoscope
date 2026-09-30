@@ -2,10 +2,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Argoscope.Application.Analytics;
 using Argoscope.Application.Collection;
+using Argoscope.Application.Decisions;
 using Argoscope.Application.Packages;
 using Argoscope.Application.Portfolios;
 using Argoscope.Application.Ranking;
 using Argoscope.Domain.Common;
+using Argoscope.Domain.Decisions;
 using Argoscope.Domain.Memberships;
 using Argoscope.Domain.Packages;
 using Argoscope.Domain.Portfolios;
@@ -15,6 +17,7 @@ using Argoscope.Domain.Snapshots;
 using Argoscope.GitHub;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -73,6 +76,18 @@ public static class ArgoscopeApiModule
         v1.MapDelete("/repositories/{repositoryId:guid}/packages/{associationId:guid}", (Guid repositoryId, Guid associationId, PackageAssociationService svc, CancellationToken ct) => RemovePackageAssociationAsync(repositoryId, associationId, svc, ct));
         v1.MapPost("/repositories/{repositoryId:guid}/packages/{associationId:guid}/collect", (Guid repositoryId, Guid associationId, PackageCollectionService svc, PackageAssociationService assocSvc, CancellationToken ct) => CollectPackageNowAsync(repositoryId, associationId, svc, assocSvc, ct));
         v1.MapGet("/repositories/{repositoryId:guid}/adoption", (Guid repositoryId, PackageAdoptionService svc, CancellationToken ct) => GetAdoptionAsync(repositoryId, svc, ct));
+
+        // Decision journal: owner-authored decisions with append-only
+        // revision history and typed, same-portfolio evidence
+        // references. The read API surfaces unresolved references as a
+        // broken-link marker rather than dropping them.
+        v1.MapPost("/portfolios/{portfolioId:guid}/decisions", (Guid portfolioId, CreateDecisionRequest request, DecisionService svc, CancellationToken ct) => CreateDecisionAsync(portfolioId, request, svc, ct));
+        v1.MapGet("/portfolios/{portfolioId:guid}/decisions", (Guid portfolioId, string? includeDeleted, DecisionService svc, CancellationToken ct) => ListDecisionsAsync(portfolioId, includeDeleted, svc, ct));
+        v1.MapGet("/portfolios/{portfolioId:guid}/decisions/{decisionId:guid}", (Guid portfolioId, Guid decisionId, DecisionService svc, CancellationToken ct) => GetDecisionAsync(portfolioId, decisionId, svc, ct));
+        v1.MapPut("/portfolios/{portfolioId:guid}/decisions/{decisionId:guid}", (Guid portfolioId, Guid decisionId, UpdateDecisionRequest request, DecisionService svc, CancellationToken ct) => UpdateDecisionAsync(portfolioId, decisionId, request, svc, ct));
+        v1.MapDelete("/portfolios/{portfolioId:guid}/decisions/{decisionId:guid}", (Guid portfolioId, Guid decisionId, [FromBody] DecisionRevisionRequest request, DecisionService svc, CancellationToken ct) => DeleteDecisionAsync(portfolioId, decisionId, request, svc, ct));
+        v1.MapPost("/portfolios/{portfolioId:guid}/decisions/{decisionId:guid}/restore", (Guid portfolioId, Guid decisionId, [FromBody] DecisionRevisionRequest request, DecisionService svc, CancellationToken ct) => RestoreDecisionAsync(portfolioId, decisionId, request, svc, ct));
+        v1.MapGet("/portfolios/{portfolioId:guid}/decisions/{decisionId:guid}/revisions", (Guid portfolioId, Guid decisionId, DecisionService svc, CancellationToken ct) => GetDecisionRevisionsAsync(portfolioId, decisionId, svc, ct));
 
         return builder;
     }
@@ -406,6 +421,218 @@ public static class ArgoscopeApiModule
 
     private static IResult Problem(int statusCode, string code, string detail) =>
         Results.Problem(statusCode: statusCode, title: code, detail: detail);
+
+    private static async Task<IResult> CreateDecisionAsync(
+        Guid portfolioId,
+        CreateDecisionRequest request,
+        DecisionService svc,
+        CancellationToken ct)
+    {
+        if (request is null
+            || string.IsNullOrWhiteSpace(request.DecisionType)
+            || string.IsNullOrWhiteSpace(request.Rationale))
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation", "DecisionType and Rationale are required.");
+        }
+        if (!DateOnly.TryParse(request.DecisionDate, out var decisionDate))
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation", "DecisionDate must be an ISO-8601 date (YYYY-MM-DD).");
+        }
+        DateOnly? reviewDate = null;
+        if (!string.IsNullOrWhiteSpace(request.ReviewDate))
+        {
+            if (!DateOnly.TryParse(request.ReviewDate, out var parsed))
+            {
+                return Problem(StatusCodes.Status400BadRequest, "validation", "ReviewDate must be an ISO-8601 date (YYYY-MM-DD).");
+            }
+            reviewDate = parsed;
+        }
+        Guid? repositoryId = null;
+        if (!string.IsNullOrWhiteSpace(request.RepositoryId) && Guid.TryParse(request.RepositoryId, out var parsedRepo))
+        {
+            repositoryId = parsedRepo;
+        }
+        var evidence = (request.Evidence ?? Array.Empty<CreateDecisionEvidenceRequest>())
+            .Select(e => new CreateDecisionEvidenceCommand(
+                e.Kind ?? "",
+                Guid.TryParse(e.ReferenceId, out var refId) ? refId : Guid.Empty,
+                e.Label))
+            .ToList();
+        var result = await svc.CreateAsync(
+            new CreateDecisionCommand(
+                Id<Portfolio>.From(portfolioId),
+                repositoryId.HasValue ? Id<Repository>.From(repositoryId.Value) : (Id<Repository>?)null,
+                request.DecisionType,
+                decisionDate,
+                request.Rationale,
+                reviewDate,
+                request.IdempotencyKey,
+                request.Note,
+                evidence,
+                request.ActorId ?? DecisionActor.DefaultOwner,
+                DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return Problem(MapStatus(result.Error!.Value.Code), result.Error.Value.Code, result.Error.Value.Message);
+        }
+        return Results.Created($"/api/v1/portfolios/{portfolioId}/decisions/{result.Value.DecisionEntryId}", result.Value);
+    }
+
+    private static async Task<IResult> ListDecisionsAsync(
+        Guid portfolioId,
+        string? includeDeleted,
+        DecisionService svc,
+        CancellationToken ct)
+    {
+        var include = string.Equals(includeDeleted, "true", StringComparison.OrdinalIgnoreCase);
+        var list = await svc.ListByPortfolioAsync(Id<Portfolio>.From(portfolioId), include, ct).ConfigureAwait(false);
+        return Results.Ok(list);
+    }
+
+    private static async Task<IResult> GetDecisionAsync(
+        Guid portfolioId,
+        Guid decisionId,
+        DecisionService svc,
+        CancellationToken ct)
+    {
+        var dto = await svc.GetAsync(
+            Id<Portfolio>.From(portfolioId),
+            Id<DecisionEntry>.From(decisionId),
+            ct).ConfigureAwait(false);
+        return dto is null ? Results.NotFound() : Results.Ok(dto);
+    }
+
+    private static async Task<IResult> UpdateDecisionAsync(
+        Guid portfolioId,
+        Guid decisionId,
+        UpdateDecisionRequest request,
+        DecisionService svc,
+        CancellationToken ct)
+    {
+        if (request is null
+            || string.IsNullOrWhiteSpace(request.DecisionType)
+            || string.IsNullOrWhiteSpace(request.Rationale))
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation", "DecisionType and Rationale are required.");
+        }
+        if (!DateOnly.TryParse(request.DecisionDate, out var decisionDate))
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation", "DecisionDate must be an ISO-8601 date (YYYY-MM-DD).");
+        }
+        DateOnly? reviewDate = null;
+        if (!string.IsNullOrWhiteSpace(request.ReviewDate))
+        {
+            if (!DateOnly.TryParse(request.ReviewDate, out var parsed))
+            {
+                return Problem(StatusCodes.Status400BadRequest, "validation", "ReviewDate must be an ISO-8601 date (YYYY-MM-DD).");
+            }
+            reviewDate = parsed;
+        }
+        var evidence = (request.Evidence ?? Array.Empty<CreateDecisionEvidenceRequest>())
+            .Select(e => new CreateDecisionEvidenceCommand(
+                e.Kind ?? "",
+                Guid.TryParse(e.ReferenceId, out var refId) ? refId : Guid.Empty,
+                e.Label))
+            .ToList();
+        var result = await svc.UpdateAsync(
+            new UpdateDecisionCommand(
+                Id<Portfolio>.From(portfolioId),
+                Id<DecisionEntry>.From(decisionId),
+                request.ExpectedRevision,
+                request.DecisionType,
+                decisionDate,
+                request.Rationale,
+                reviewDate,
+                request.Note,
+                evidence,
+                request.ActorId ?? DecisionActor.DefaultOwner,
+                DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return Problem(MapStatus(result.Error!.Value.Code), result.Error.Value.Code, result.Error.Value.Message);
+        }
+        return Results.Ok(result.Value);
+    }
+
+    private static async Task<IResult> DeleteDecisionAsync(
+        Guid portfolioId,
+        Guid decisionId,
+        [FromBody] DecisionRevisionRequest request,
+        DecisionService svc,
+        CancellationToken ct)
+    {
+        if (request is null)
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation", "expectedRevision is required.");
+        }
+        var result = await svc.DeleteAsync(
+            new DeleteDecisionCommand(
+                Id<Portfolio>.From(portfolioId),
+                Id<DecisionEntry>.From(decisionId),
+                request.ExpectedRevision,
+                request.Note,
+                request.ActorId ?? DecisionActor.DefaultOwner,
+                DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return Problem(MapStatus(result.Error!.Value.Code), result.Error.Value.Code, result.Error.Value.Message);
+        }
+        return Results.Ok(result.Value);
+    }
+
+    private static async Task<IResult> RestoreDecisionAsync(
+        Guid portfolioId,
+        Guid decisionId,
+        [FromBody] DecisionRevisionRequest request,
+        DecisionService svc,
+        CancellationToken ct)
+    {
+        if (request is null)
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation", "expectedRevision is required.");
+        }
+        var result = await svc.RestoreAsync(
+            new RestoreDecisionCommand(
+                Id<Portfolio>.From(portfolioId),
+                Id<DecisionEntry>.From(decisionId),
+                request.ExpectedRevision,
+                request.Note,
+                request.ActorId ?? DecisionActor.DefaultOwner,
+                DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return Problem(MapStatus(result.Error!.Value.Code), result.Error.Value.Code, result.Error.Value.Message);
+        }
+        return Results.Ok(result.Value);
+    }
+
+    private static async Task<IResult> GetDecisionRevisionsAsync(
+        Guid portfolioId,
+        Guid decisionId,
+        DecisionService svc,
+        CancellationToken ct)
+    {
+        var dto = await svc.GetAsync(
+            Id<Portfolio>.From(portfolioId),
+            Id<DecisionEntry>.From(decisionId),
+            ct).ConfigureAwait(false);
+        if (dto is null) return Results.NotFound();
+        var revisions = await svc.GetRevisionsAsync(Id<DecisionEntry>.From(decisionId), ct).ConfigureAwait(false);
+        return Results.Ok(revisions);
+    }
+
+    private static int MapStatus(string code) => code switch
+    {
+        "not_found" => StatusCodes.Status404NotFound,
+        "conflict" => StatusCodes.Status409Conflict,
+        "unauthorized" => StatusCodes.Status401Unauthorized,
+        "forbidden" => StatusCodes.Status403Forbidden,
+        _ => StatusCodes.Status400BadRequest,
+    };
 }
 
 public sealed record CreatePortfolioRequest(string Name);
@@ -430,3 +657,34 @@ public sealed record CreatePackageAssociationRequest(
 public sealed record UpdatePackageAssociationRequest(
     string DefaultUnit,
     string DefaultWindow);
+
+public sealed record CreateDecisionRequest(
+    string? RepositoryId,
+    string DecisionType,
+    string DecisionDate,
+    string Rationale,
+    string? ReviewDate,
+    string? IdempotencyKey,
+    string? Note,
+    string? ActorId,
+    IReadOnlyList<CreateDecisionEvidenceRequest>? Evidence);
+
+public sealed record CreateDecisionEvidenceRequest(
+    string? Kind,
+    string? ReferenceId,
+    string? Label);
+
+public sealed record UpdateDecisionRequest(
+    int ExpectedRevision,
+    string DecisionType,
+    string DecisionDate,
+    string Rationale,
+    string? ReviewDate,
+    string? Note,
+    string? ActorId,
+    IReadOnlyList<CreateDecisionEvidenceRequest>? Evidence);
+
+public sealed record DecisionRevisionRequest(
+    int ExpectedRevision,
+    string? Note,
+    string? ActorId);

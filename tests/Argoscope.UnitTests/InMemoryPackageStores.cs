@@ -79,6 +79,14 @@ public sealed class InMemoryPackageObservationStore : IPackageObservationStore
         }
     }
 
+    public Task<PackageObservation?> FindByIdAsync(Id<PackageObservation> id, CancellationToken cancellationToken)
+    {
+        lock (_lock)
+        {
+            return Task.FromResult(_items.FirstOrDefault(o => o.Id == id));
+        }
+    }
+
     public Task<PackageObservation> UpsertAsync(PackageObservation observation, CancellationToken cancellationToken)
     {
         lock (_lock)

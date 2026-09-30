@@ -1,12 +1,14 @@
 using Argoscope.Application.Analytics;
 using Argoscope.Application.Benchmarks;
 using Argoscope.Application.Collection;
+using Argoscope.Application.Decisions;
 using Argoscope.Application.Engagement;
 using Argoscope.Application.Metrics;
 using Argoscope.Application.Packages;
 using Argoscope.Application.Portfolios;
 using Argoscope.Application.Ranking;
 using Argoscope.Domain.Common;
+using Argoscope.Domain.Decisions;
 using Argoscope.Domain.Engagement;
 using Argoscope.Domain.Memberships;
 using Argoscope.Domain.Packages;
@@ -111,6 +113,9 @@ public sealed class EfMetricSnapshotStore : IMetricSnapshotStore
 {
     private readonly ArgoscopeDbContext _db;
     public EfMetricSnapshotStore(ArgoscopeDbContext db) => _db = db;
+
+    public Task<MetricSnapshot?> FindByIdAsync(Id<MetricSnapshot> id, CancellationToken cancellationToken) =>
+        _db.MetricSnapshots.FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
 
     public Task<MetricSnapshot?> FindAsync(Id<Repository> repositoryId, string metricName, DateOnly date, string providerVersion, CancellationToken cancellationToken) =>
         _db.MetricSnapshots.FirstOrDefaultAsync(
@@ -253,6 +258,9 @@ public sealed class EfPackageObservationStore : IPackageObservationStore
     private readonly ArgoscopeDbContext _db;
     public EfPackageObservationStore(ArgoscopeDbContext db) => _db = db;
 
+    public Task<PackageObservation?> FindByIdAsync(Id<PackageObservation> id, CancellationToken cancellationToken) =>
+        _db.PackageObservations.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+
     public Task<PackageObservation?> FindAsync(
         Id<PackageAssociation> associationId,
         PackageUnit unit,
@@ -315,5 +323,135 @@ public sealed class EfPackageObservationStore : IPackageObservationStore
             .OrderBy(p => p.WindowStartUtc)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
+}
+
+public sealed class EfDecisionEntryStore : IDecisionEntryStore
+{
+    private readonly ArgoscopeDbContext _db;
+    public EfDecisionEntryStore(ArgoscopeDbContext db) => _db = db;
+
+    public Task<DecisionEntry?> FindAsync(Id<DecisionEntry> id, CancellationToken cancellationToken) =>
+        _db.DecisionEntries.FirstOrDefaultAsync(d => d.Id == id, cancellationToken);
+
+    public Task<DecisionEntry?> FindByIdempotencyKeyAsync(
+        Id<Portfolio> portfolioId, string idempotencyKey, CancellationToken cancellationToken) =>
+        _db.DecisionEntries.FirstOrDefaultAsync(
+            d => d.PortfolioId == portfolioId && d.IdempotencyKey == idempotencyKey,
+            cancellationToken);
+
+    public async Task<IReadOnlyList<DecisionEntry>> ListByPortfolioAsync(
+        Id<Portfolio> portfolioId, bool includeDeleted, CancellationToken cancellationToken)
+    {
+        var query = _db.DecisionEntries
+            .Where(d => d.PortfolioId == portfolioId);
+        if (!includeDeleted)
+        {
+            query = query.Where(d => d.DeletedAtUtc == null);
+        }
+        return await query
+            .OrderByDescending(d => d.DecisionDate)
+            .ThenByDescending(d => d.CreatedAtUtc)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<DecisionEntry>> ListByRepositoryAsync(
+        Id<Repository> repositoryId, bool includeDeleted, CancellationToken cancellationToken)
+    {
+        var query = _db.DecisionEntries
+            .Where(d => d.RepositoryId == repositoryId);
+        if (!includeDeleted)
+        {
+            query = query.Where(d => d.DeletedAtUtc == null);
+        }
+        return await query
+            .OrderByDescending(d => d.DecisionDate)
+            .ThenByDescending(d => d.CreatedAtUtc)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<DecisionEntry> AddAsync(DecisionEntry entry, CancellationToken cancellationToken)
+    {
+        await _db.DecisionEntries.AddAsync(entry, cancellationToken).ConfigureAwait(false);
+        await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return entry;
+    }
+
+    public async Task UpdateAsync(DecisionEntry entry, CancellationToken cancellationToken)
+    {
+        _db.DecisionEntries.Update(entry);
+        await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+}
+
+public sealed class EfDecisionRevisionStore : IDecisionRevisionStore
+{
+    private readonly ArgoscopeDbContext _db;
+    public EfDecisionRevisionStore(ArgoscopeDbContext db) => _db = db;
+
+    public async Task<DecisionRevision> AddAsync(DecisionRevision revision, CancellationToken cancellationToken)
+    {
+        await _db.DecisionRevisions.AddAsync(revision, cancellationToken).ConfigureAwait(false);
+        await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return revision;
+    }
+
+    public async Task<IReadOnlyList<DecisionRevision>> ListByEntryAsync(
+        Id<DecisionEntry> decisionEntryId, CancellationToken cancellationToken) =>
+        await _db.DecisionRevisions
+            .Where(r => r.DecisionEntryId == decisionEntryId)
+            .OrderBy(r => r.RevisionNumber)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+    public Task<DecisionRevision?> GetLatestAsync(
+        Id<DecisionEntry> decisionEntryId, CancellationToken cancellationToken) =>
+        _db.DecisionRevisions
+            .Where(r => r.DecisionEntryId == decisionEntryId)
+            .OrderByDescending(r => r.RevisionNumber)
+            .FirstOrDefaultAsync(cancellationToken);
+}
+
+public sealed class EfDecisionEvidenceStore : IDecisionEvidenceStore
+{
+    private readonly ArgoscopeDbContext _db;
+    public EfDecisionEvidenceStore(ArgoscopeDbContext db) => _db = db;
+
+    public async Task AddRangeAsync(
+        IReadOnlyList<DecisionEvidenceReference> references, CancellationToken cancellationToken)
+    {
+        if (references.Count == 0) return;
+        await _db.DecisionEvidenceReferences.AddRangeAsync(references, cancellationToken).ConfigureAwait(false);
+        await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<DecisionEvidenceReference>> ListByRevisionAsync(
+        Id<DecisionRevision> revisionId, CancellationToken cancellationToken) =>
+        await _db.DecisionEvidenceReferences
+            .Where(r => r.DecisionRevisionId == revisionId)
+            .OrderBy(r => r.Id.Value)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+    public async Task<IReadOnlyDictionary<Id<DecisionRevision>, IReadOnlyList<DecisionEvidenceReference>>> ListByRevisionsAsync(
+        IReadOnlyList<Id<DecisionRevision>> revisionIds, CancellationToken cancellationToken)
+    {
+        if (revisionIds.Count == 0)
+        {
+            return new Dictionary<Id<DecisionRevision>, IReadOnlyList<DecisionEvidenceReference>>();
+        }
+        var rows = await _db.DecisionEvidenceReferences
+            .Where(r => revisionIds.Contains(r.DecisionRevisionId))
+            .OrderBy(r => r.Id.Value)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var grouped = rows
+            .GroupBy(r => r.DecisionRevisionId)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<DecisionEvidenceReference>)g.ToList());
+        return grouped;
     }
 }

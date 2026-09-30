@@ -1,6 +1,10 @@
 import type {
   BenchmarkReport,
   CollectionRunResult,
+  DecisionEntryDto,
+  DecisionRevisionDto,
+  DecisionType,
+  DecisionEvidenceKind,
   MembershipDto,
   PackageAdoptionReport,
   PackageAssociationDto,
@@ -29,6 +33,40 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (res.status === 204) return undefined as unknown as T;
   return (await res.json()) as T;
+}
+
+async function requestWithBody<T>(method: string, path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${base}${path}`, {
+    method,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`${method} ${path} -> ${res.status} ${detail}`);
+  }
+  return (await res.json()) as T;
+}
+
+export interface CreateDecisionRequest {
+  repositoryId: string | null;
+  decisionType: DecisionType;
+  decisionDate: string;
+  rationale: string;
+  reviewDate: string | null;
+  idempotencyKey?: string | null;
+  note?: string | null;
+  evidence?: Array<{ kind: DecisionEvidenceKind; referenceId: string; label?: string | null }>;
+}
+
+export interface UpdateDecisionRequest {
+  expectedRevision: number;
+  decisionType: DecisionType;
+  decisionDate: string;
+  rationale: string;
+  reviewDate: string | null;
+  note?: string | null;
+  evidence?: Array<{ kind: DecisionEvidenceKind; referenceId: string; label?: string | null }>;
 }
 
 export const api = {
@@ -81,4 +119,18 @@ export const api = {
     request<PackageCollectionRunResult>('POST', `/repositories/${repositoryId}/packages/${associationId}/collect`),
   getPackageAdoption: (repositoryId: string) =>
     request<PackageAdoptionReport>('GET', `/repositories/${repositoryId}/adoption`),
+  listDecisions: (portfolioId: string, includeDeleted = false) =>
+    request<DecisionEntryDto[]>('GET', `/portfolios/${portfolioId}/decisions?includeDeleted=${includeDeleted}`),
+  getDecision: (portfolioId: string, decisionId: string) =>
+    request<DecisionEntryDto>('GET', `/portfolios/${portfolioId}/decisions/${decisionId}`),
+  getDecisionRevisions: (portfolioId: string, decisionId: string) =>
+    request<DecisionRevisionDto[]>('GET', `/portfolios/${portfolioId}/decisions/${decisionId}/revisions`),
+  createDecision: (portfolioId: string, body: CreateDecisionRequest) =>
+    request<DecisionEntryDto>('POST', `/portfolios/${portfolioId}/decisions`, body),
+  updateDecision: (portfolioId: string, decisionId: string, body: UpdateDecisionRequest) =>
+    request<DecisionEntryDto>('PUT', `/portfolios/${portfolioId}/decisions/${decisionId}`, body),
+  deleteDecision: (portfolioId: string, decisionId: string, expectedRevision: number, note?: string | null) =>
+    requestWithBody<DecisionEntryDto>('DELETE', `/portfolios/${portfolioId}/decisions/${decisionId}`, { expectedRevision, note }),
+  restoreDecision: (portfolioId: string, decisionId: string, expectedRevision: number, note?: string | null) =>
+    request<DecisionEntryDto>('POST', `/portfolios/${portfolioId}/decisions/${decisionId}/restore`, { expectedRevision, note }),
 };

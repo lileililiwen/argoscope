@@ -227,3 +227,52 @@ export interface PackageAdoptionReport {
   seriesMissing: number;
   insufficientReason: string | null;
 }
+
+export type DecisionType = 'Continue' | 'Invest' | 'Pause' | 'Archive' | 'Revisit';
+export type DecisionRevisionAction = 'Create' | 'Update' | 'Delete' | 'Restore';
+export type DecisionEvidenceKind = 'Snapshot' | 'PackageObservation' | 'CommercialSignal';
+export type DecisionEvidenceResolution = 'Resolved' | 'Unresolved';
+
+export interface DecisionEvidenceDto {
+  evidenceId: string;
+  kind: DecisionEvidenceKind;
+  referenceId: string;
+  resolution: DecisionEvidenceResolution;
+  sourceDestination: string;
+  label: string | null;
+  evidenceDate: string | null;
+}
+
+export interface DecisionRevisionSummaryDto {
+  revisionNumber: number;
+  action: DecisionRevisionAction;
+  actorId: string;
+  occurredAtUtc: string;
+  note: string | null;
+}
+
+export interface DecisionEntryDto {
+  decisionEntryId: string;
+  portfolioId: string;
+  repositoryId: string | null;
+  decisionType: DecisionType;
+  decisionDate: string;
+  rationale: string;
+  reviewDate: string | null;
+  revisionNumber: number;
+  idempotencyKey: string | null;
+  deletedAtUtc: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+  evidence: DecisionEvidenceDto[];
+  latestRevision: DecisionRevisionSummaryDto;
+}
+
+export interface DecisionRevisionDto {
+  revisionNumber: number;
+  action: DecisionRevisionAction;
+  actorId: string;
+  occurredAtUtc: string;
+  note: string | null;
+  evidence: DecisionEvidenceDto[];
+}

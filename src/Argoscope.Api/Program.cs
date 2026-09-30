@@ -1,6 +1,7 @@
 using Argoscope.Api;
 using Argoscope.Application.Analytics;
 using Argoscope.Application.Collection;
+using Argoscope.Application.Decisions;
 using Argoscope.Application.Packages;
 using Argoscope.Application.Portfolios;
 using Argoscope.Application.Ranking;
@@ -95,6 +96,10 @@ builder.Services.AddScoped<ICheckpointStore, EfCheckpointStore>();
 builder.Services.AddScoped<IScoreConfigurationStore, EfScoreConfigurationStore>();
 builder.Services.AddScoped<IPackageAssociationStore, EfPackageAssociationStore>();
 builder.Services.AddScoped<IPackageObservationStore, EfPackageObservationStore>();
+builder.Services.AddScoped<IDecisionEntryStore, EfDecisionEntryStore>();
+builder.Services.AddScoped<IDecisionRevisionStore, EfDecisionRevisionStore>();
+builder.Services.AddScoped<IDecisionEvidenceStore, EfDecisionEvidenceStore>();
+builder.Services.AddScoped<DecisionEvidenceResolver>();
 builder.Services.AddScoped<CollectionService>();
 builder.Services.AddScoped<AnalyticsService>();
 builder.Services.AddScoped<PortfolioService>();
@@ -102,6 +107,7 @@ builder.Services.AddScoped<PriorityScoreService>();
 builder.Services.AddScoped<PackageAssociationService>();
 builder.Services.AddScoped<PackageAdoptionService>();
 builder.Services.AddScoped<PackageCollectionService>();
+builder.Services.AddScoped<DecisionService>();
 
 // Daily collection jobs (only when the real provider is configured).
 if (!string.IsNullOrWhiteSpace(ghToken))
