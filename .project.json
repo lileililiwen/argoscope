@@ -49,5 +49,13 @@
     "homepage": "https://github.com/lileililiwen/argoscope",
     "license_spdx": "MIT",
     "visibility": "public"
+  },
+  "publication": {
+    "provider": "github",
+    "owner": "lileililiwen",
+    "repository": "argoscope",
+    "default_branch": "main",
+    "state": "metadata_verified",
+    "evidence_ref": "HANDOFF.md"
   }
 }

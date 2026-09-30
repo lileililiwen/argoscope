@@ -12,11 +12,15 @@ openspec/changes/github-portfolio-momentum-mvp/ is the first implementation pack
 
 ## Verification evidence
 
-- openspec init --tools codex created repository OpenSpec structure (spec-driven). Codex prompt installation was blocked because /home/paul/.codex/prompts/opsx-explore.md is read-only; repository OpenSpec files are available.
+- openspec init --tools codex created repository OpenSpec structure (spec-driven). Codex prompt installation was blocked because the user-level prompt directory is read-only; repository OpenSpec files are available.
 - .NET SDK 10.0.400 is installed. No Argoscope solution or web app exists yet.
-- GitHub CLI authentication was confirmed outside the sandbox. Repo existence checks found no lileililiwen/argoscope repository.
-- No application build, tests, live GitHub API request, runtime, or screenshot has been run. docs/assets/capture-plan.md records the capture blocker and retry steps.
-- Workspace Governance audit reported DISCOVERED_UNREGISTERED, CI_MISSING, and PUBLICATION_UNVERIFIED for this new repository; it also reported the unrelated pre-existing missing directory jenkins-bootstrap. Central registry changes are outside this bootstrap. Publication evidence will be updated after GitHub creation; CI awaits an executable application source tree.
+- GitHub CLI authentication passed outside the sandbox. Initial repository existence check found no prior lileililiwen/argoscope.
+- Published with gh repo create lileililiwen/argoscope --public --source . --remote origin --push; initial commit f0886092d42d67bab6552c84ce03c66cb7a1c2ad reached main.
+- gh repo edit set the approved description, homepage https://github.com/lileililiwen/argoscope, and topics github-analytics, open-source, portfolio-analytics, repository-metrics.
+- The shared Workspace Governance GitHub metadata publisher returned metadata_verified with no differences and recorded publication in .project.json.
+- gh repo view --json nameWithOwner,description,homepageUrl,visibility,repositoryTopics,url reported public lileililiwen/argoscope and matching description/homepage/topics. git ls-remote --heads origin main returned f0886092d42d67bab6552c84ce03c66cb7a1c2ad refs/heads/main.
+- OpenSpec strict validation passed (1 change, 0 failures). Workspace Governance reported DISCOVERED_UNREGISTERED and CI_MISSING; it also reported the unrelated pre-existing missing directory jenkins-bootstrap. Central registry changes are outside this bootstrap.
+- No application build, tests, live GitHub API request, runtime, or screenshot has been run. Capture is blocked because there is no application source tree; docs/assets/capture-plan.md records the next action. CI awaits an executable application source tree.
 
 ## Next actions
 
