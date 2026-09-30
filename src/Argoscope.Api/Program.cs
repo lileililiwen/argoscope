@@ -5,6 +5,7 @@ using Argoscope.Application.Billing;
 using Argoscope.Application.Collection;
 using Argoscope.Application.Decisions;
 using Argoscope.Application.Identity;
+using Argoscope.Application.Operations;
 using Argoscope.Application.Packages;
 using Argoscope.Application.Portfolios;
 using Argoscope.Application.Ranking;
@@ -33,6 +34,7 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.Configure<GitHubProviderOptions>(builder.Configuration.GetSection("GitHub"));
 builder.Services.Configure<IdentityOptions>(builder.Configuration.GetSection(IdentityOptions.SectionName));
 builder.Services.Configure<BillingOptions>(builder.Configuration.GetSection(BillingOptions.SectionName));
+builder.Services.Configure<OperationsOptions>(builder.Configuration.GetSection(OperationsOptions.SectionName));
 builder.Services.Configure<DailyCollectionOptions>(builder.Configuration.GetSection("Argoscope:Collection"));
 builder.Services.Configure<PackageCollectionOptions>(builder.Configuration.GetSection("Argoscope:Packages"));
 
@@ -122,6 +124,9 @@ builder.Services.AddScoped<ITenantStore, EfTenantStore>();
 builder.Services.AddScoped<ITenantMembershipStore, EfTenantMembershipStore>();
 builder.Services.AddScoped<IPortfolioTenantStore, EfPortfolioTenantStore>();
 builder.Services.AddScoped<IBillingStore, EfBillingStore>();
+builder.Services.AddScoped<IDeletionStore, EfDeletionStore>();
+builder.Services.AddScoped<IIncidentStore, EfIncidentStore>();
+builder.Services.AddScoped<IRestoreRehearsalStore, EfRestoreRehearsalStore>();
 builder.Services.AddSingleton<IEntitlementCache, InMemoryEntitlementCache>();
 builder.Services.AddSingleton<OidcTokenValidator>();
 builder.Services.AddSingleton<ISessionStore>(sp =>
@@ -150,6 +155,7 @@ builder.Services.AddScoped<CommercialSignalService>();
 builder.Services.AddScoped<TenantService>();
 builder.Services.AddScoped<TenantMigrationService>();
 builder.Services.AddScoped<BillingService>();
+builder.Services.AddScoped<OperationsService>();
 
 // Daily collection jobs (only when the real provider is configured).
 if (!string.IsNullOrWhiteSpace(ghToken))
@@ -204,6 +210,7 @@ app.MapFallback(async ctx =>
 app.MapArgoscopeApi();
 app.MapIdentityApi();
 app.MapBillingApi();
+app.MapOperationsApi();
 app.MapGet("/api/v1/health", () => Results.Ok(new { status = "ok", time = DateTimeOffset.UtcNow }));
 
 app.Run();

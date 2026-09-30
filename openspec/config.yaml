@@ -2,9 +2,15 @@ schema: spec-driven
 
 context: |
   Product: Argoscope, open-source GitHub project portfolio analytics.
-  Status: planning/bootstrap only; do not infer runtime implementation.
-  Stack: ASP.NET Core 10 API, React + TypeScript web app, PostgreSQL,
-  Hangfire, GitHub GraphQL/REST APIs, Docker; self-hosted single owner first.
+  Status: all eight OpenSpec changes implemented, verified and archived
+  (portfolio catalog, collection/snapshots, analytics, adoption, decisions,
+  alerts, commercial signals, hosted identity, hosted billing, hosted
+  operations). Docs in README.md, ROADMAP.md and docs/ are the current
+  implemented baseline; do not describe the project as planning-only.
+  Stack: ASP.NET Core 10 API, React + TypeScript web app, PostgreSQL
+  (InMemory for local/test), GitHub GraphQL/REST APIs, Docker; self-hosted
+  single-owner plus hosted multi-tenant profiles with billing and
+  readiness-gated operations.
   Metrics are sourced and timestamped; calculations are deterministic from
   snapshots; owner activity is separate from external engagement.
   A ranking is transparent and advisory, never an automatic lifecycle decision.

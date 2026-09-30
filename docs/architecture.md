@@ -1,12 +1,18 @@
 # Argoscope architecture decisions
 
-Status: planning baseline; not runtime evidence.
+Status: implemented baseline; each ADR below is backed by shipped code and tests.
 
 ## ADR 0001 — .NET 10 + React self-hosted analytics app
 
 - **Decision:** ASP.NET Core 10 API, React + TypeScript web client, PostgreSQL, Hangfire and Docker. Solution boundaries: Argoscope.Domain, Argoscope.Application, Argoscope.Infrastructure, Argoscope.GitHub, Argoscope.Api, tests/, and web/.
 - **Reason:** scheduled API collection, time-series persistence, deterministic aggregation and a portfolio dashboard fit the specified stack and ownership.
-- **Consequence:** self-hosted single owner first; PAT secret comes from environment/secret store. Do not imply hosted OAuth or SaaS.
+- **Consequence:** self-hosted single owner first; PAT secret comes from environment/secret store. Hosted multi-tenant access ships on top via tenant isolation, roles and migration gating (ADR 0004).
+
+## ADR 0004 — Hosted operations readiness
+
+- **Decision:** split health gates (`/health/live` dependency-free, `/health/ready` checking database/migrations/jobs with status-only responses), immutable revision-tagged container artifact (`ARGOSCOPE_RELEASE_REVISION` → `/ops/release`), expand-then-contract migrations under a single lock, encrypted backups with isolated restore rehearsals measured against RPO 24 h / RTO 8 h, and an auditable tenant-deletion lifecycle (tombstone → 30-day active purge → backup expiry) plus incident evidence. Provider and region selection stay explicit operator decisions; no vendor assumption is encoded.
+- **Reason:** hosted identity and billing do not prove the service can be deployed, observed, recovered and supported; launch needs measured rehearsal evidence, not build success.
+- **Consequence:** release promotion is blocked when migration, readiness, backup verification or restore objectives fail; missed rehearsals open remediation incidents; launch requires named operator sign-off. See `docs/operations/` and `scripts/ops_readiness.py`.
 
 ## ADR 0002 — Provider-backed, revision-bound snapshots
 
@@ -22,7 +28,7 @@ Priority score uses configured component weights (defaults from product brief: m
 
 ## Shared-library decision
 
-dotnet-platform-libs owns .NET 10 web composition, EF Core/PostgreSQL and Hangfire adapters. Decision: **deferred investigation** before package adoption. Check package manifest/release versions, cross-project contracts and migration compatibility. Argoscope owns GitHub GraphQL/REST semantics, snapshot schema, time series and scoring. No source is copied and no sibling is edited by this bootstrap.
+dotnet-platform-libs owns .NET 10 web composition, EF Core/PostgreSQL and Hangfire adapters. Decision: **evaluated, local adapters retained** (see `docs/architecture/platform-evaluation.md`). The sibling surfaces are local-only 0.1.0 and not on the pinned nuget.org feed; tenant membership/authorization, billing entitlement and operations policies are product-specific. Check package manifest/release versions, cross-project contracts and migration compatibility before any future adoption. Argoscope owns GitHub GraphQL/REST semantics, snapshot schema, time series and scoring. No source is copied and no sibling is edited.
 
 ## Security and failure behavior
 

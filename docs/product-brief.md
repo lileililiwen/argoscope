@@ -7,7 +7,7 @@ Argoscope is an open-source portfolio analytics dashboard for GitHub projects. I
 ## MVP
 
 - Portfolio and repositories with explicit owned/competitor/category roles and lifecycle labels (Idea, Prototype, Open Source, Growing, Validated, SaaS Candidate, Hosted, Maintenance, Archived). The owner controls lifecycle; analytics may suggest attention but never change it.
-- GitHub PAT-based self-hosted access. Collect public repository metadata and owner-authorized fields only when permissions allow. OAuth hosted accounts are deferred.
+- GitHub PAT-based self-hosted access. Collect public repository metadata and owner-authorized fields only when permissions allow. Hosted multi-tenant OIDC access with tenant isolation, roles and migration gating is implemented; see ADR 0004.
 - Daily snapshots for stars, forks, watchers, open issues, open PRs, contributor count, commits, releases, languages, repository age and last activity. Preserve capture time/source and distinguish unavailable from zero.
 - Star/fork velocity over 7 and 30 days; acceleration compares the current 30-day change with the previous 30-day change. Engagement reports external issues/PRs/contributors separately from owner activity.
 - Competitor comparison for 30-day growth, fork/star, contributors, external issues/PRs and release velocity; category median only when cohort/data coverage is sufficient.
@@ -15,7 +15,7 @@ Argoscope is an open-source portfolio analytics dashboard for GitHub projects. I
 
 ## Deferred
 
-Traffic/views/clones (owner permission-bound), package downloads (Docker Hub, npm, NuGet, PyPI, crates.io), AI issue/commercial classification, alerts, decision journal, hosted OAuth accounts, billing, SaaS hosting, and automatic lifecycle transitions.
+Traffic/views/clones (owner permission-bound) and automatic lifecycle transitions. Package downloads, commercial-intent review, alerts, decision journal, hosted accounts, billing and operations readiness are implemented.
 
 ## Evidence and trust rules
 
@@ -23,4 +23,4 @@ Every snapshot has source, observed-at UTC, request window, permissions/coverage
 
 ## Stack and status
 
-Planned: ASP.NET Core 10, React + TypeScript, PostgreSQL, Hangfire, GitHub GraphQL and REST APIs, Docker. Self-hosted single owner first. This is a planning baseline; there is no runtime or GitHub data integration yet.
+Shipped: ASP.NET Core 10, React + TypeScript, PostgreSQL (InMemory for local/test), GitHub GraphQL and REST APIs, Docker. Self-hosted single owner plus hosted multi-tenant profiles with billing and readiness-gated operations.

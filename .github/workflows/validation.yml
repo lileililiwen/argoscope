@@ -27,9 +27,29 @@ jobs:
           openspec validate --all --strict --no-interactive
       - name: Build .NET solution when present
         if: hashFiles('**/*.sln', '**/*.slnx') != ''
-        run: dotnet build
+        run: dotnet build --nologo
+      - name: Test .NET solution when present
+        if: hashFiles('**/*.sln', '**/*.slnx') != ''
+        run: dotnet test --nologo
       - name: Build web app when present
         if: hashFiles('web/package-lock.json') != ''
         run: |
           npm ci --prefix web
           npm run build --prefix web
+      - name: Test web app when present
+        if: hashFiles('web/package-lock.json') != ''
+        run: npm test --prefix web
+      - name: Build container image
+        run: docker build -t argoscope:ci .
+      - name: Release gate against staged container
+        run: |
+          docker run -d --name argoscope-ci -p 18080:8080 argoscope:ci
+          for i in $(seq 1 30); do
+            if wget -qO- http://127.0.0.1:18080/api/v1/health/live 2>/dev/null | grep -q '"status"'; then
+              break
+            fi
+            sleep 2
+          done
+          python3 scripts/ops_readiness.py --base-url http://127.0.0.1:18080
+          docker stop argoscope-ci
+          docker rm argoscope-ci

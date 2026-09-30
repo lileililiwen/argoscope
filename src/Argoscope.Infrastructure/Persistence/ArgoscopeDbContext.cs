@@ -4,6 +4,7 @@ using Argoscope.Domain.Decisions;
 using Argoscope.Domain.Engagement;
 using Argoscope.Domain.Identity;
 using Argoscope.Domain.Memberships;
+using Argoscope.Domain.Operations;
 using Argoscope.Domain.Packages;
 using Argoscope.Domain.Portfolios;
 using Argoscope.Domain.Repositories;
@@ -38,6 +39,9 @@ public sealed class ArgoscopeDbContext : DbContext
     public DbSet<SignalReview> SignalReviews => Set<SignalReview>();
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<TenantMembership> TenantMemberships => Set<TenantMembership>();
+    public DbSet<TenantDeletionRequest> DeletionRequests => Set<TenantDeletionRequest>();
+    public DbSet<OperationalIncident> Incidents => Set<OperationalIncident>();
+    public DbSet<RestoreRehearsal> RestoreRehearsals => Set<RestoreRehearsal>();
     public DbSet<BillingCustomer> BillingCustomers => Set<BillingCustomer>();
     public DbSet<BillingSubscription> BillingSubscriptions => Set<BillingSubscription>();
     public DbSet<ProviderEvent> ProviderEvents => Set<ProviderEvent>();
@@ -63,6 +67,9 @@ public sealed class ArgoscopeDbContext : DbContext
         modelBuilder.ApplyConfiguration(new SignalReviewConfiguration());
         modelBuilder.ApplyConfiguration(new TenantConfiguration());
         modelBuilder.ApplyConfiguration(new TenantMembershipConfiguration());
+        modelBuilder.ApplyConfiguration(new DeletionRequestConfiguration());
+        modelBuilder.ApplyConfiguration(new OperationalIncidentConfiguration());
+        modelBuilder.ApplyConfiguration(new RestoreRehearsalConfiguration());
         modelBuilder.ApplyConfiguration(new BillingCustomerConfiguration());
         modelBuilder.ApplyConfiguration(new BillingSubscriptionConfiguration());
         modelBuilder.ApplyConfiguration(new ProviderEventConfiguration());
@@ -475,5 +482,63 @@ public sealed class TenantMembershipConfiguration : IEntityTypeConfiguration<Ten
         b.Property(m => m.UpdatedAtUtc).IsRequired();
         b.HasIndex(m => m.TenantId);
         b.HasIndex(m => new { m.TenantId, m.Subject });
+    }
+}
+
+public sealed class DeletionRequestConfiguration : IEntityTypeConfiguration<TenantDeletionRequest>
+{
+    public void Configure(EntityTypeBuilder<TenantDeletionRequest> b)
+    {
+        b.ToTable("tenant_deletion_requests");
+        b.HasKey(r => r.Id);
+        b.Property(r => r.Id).HasConversion(v => v.Value, v => Domain.Common.Id<TenantDeletionRequest>.From(v));
+        b.Property(r => r.TenantId).HasConversion(v => v.Value, v => Domain.Common.Id<Tenant>.From(v));
+        b.Property(r => r.RequestedBy).HasMaxLength(TenantDeletionRequest.MaxRequestedByLength).IsRequired();
+        b.Property(r => r.RequestedAtUtc).IsRequired();
+        b.Property(r => r.ActivePurgeDueAtUtc).IsRequired();
+        b.Property(r => r.BackupExpiryDueAtUtc).IsRequired();
+        b.Property(r => r.Status).HasConversion<int>();
+        b.Property(r => r.ActivePurgedAtUtc);
+        b.Property(r => r.BackupExpiredAtUtc);
+        b.HasIndex(r => r.TenantId).IsUnique();
+    }
+}
+
+public sealed class OperationalIncidentConfiguration : IEntityTypeConfiguration<OperationalIncident>
+{
+    public void Configure(EntityTypeBuilder<OperationalIncident> b)
+    {
+        b.ToTable("operational_incidents");
+        b.HasKey(i => i.Id);
+        b.Property(i => i.Id).HasConversion(v => v.Value, v => Domain.Common.Id<OperationalIncident>.From(v));
+        b.Property(i => i.Title).HasMaxLength(OperationalIncident.MaxTitleLength).IsRequired();
+        b.Property(i => i.Severity).HasConversion<int>();
+        b.Property(i => i.Status).HasConversion<int>();
+        b.Property(i => i.Scope).HasMaxLength(200).IsRequired();
+        b.Property(i => i.Summary).HasMaxLength(OperationalIncident.MaxSummaryLength).IsRequired();
+        b.Property(i => i.OpenedAtUtc).IsRequired();
+        b.Property(i => i.ResolvedAtUtc);
+        b.Property(i => i.Resolution).HasMaxLength(2000);
+        b.HasIndex(i => i.Status);
+    }
+}
+
+public sealed class RestoreRehearsalConfiguration : IEntityTypeConfiguration<RestoreRehearsal>
+{
+    public void Configure(EntityTypeBuilder<RestoreRehearsal> b)
+    {
+        b.ToTable("restore_rehearsals");
+        b.HasKey(r => r.Id);
+        b.Property(r => r.Id).HasConversion(v => v.Value, v => Domain.Common.Id<RestoreRehearsal>.From(v));
+        b.Property(r => r.ArtifactRevision).HasMaxLength(200).IsRequired();
+        b.Property(r => r.DatabaseRevision).HasMaxLength(200).IsRequired();
+        b.Property(r => r.StartedAtUtc).IsRequired();
+        b.Property(r => r.FinishedAtUtc).IsRequired();
+        b.Property(r => r.RpoHoursMeasured).IsRequired();
+        b.Property(r => r.RtoHoursMeasured).IsRequired();
+        b.Property(r => r.IntegrityOk).IsRequired();
+        b.Property(r => r.MeetsObjectives).IsRequired();
+        b.Property(r => r.RecordedBy).HasMaxLength(300).IsRequired();
+        b.HasIndex(r => r.ArtifactRevision);
     }
 }

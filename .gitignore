@@ -1,18 +1,50 @@
+# .NET build outputs
 **/bin/
 **/obj/
+**/out/
+**/publish/
+*.user
+*.suo
+.vs/
+.rider/
+
+# Node / web build (Vite output; rebuilt by `npm run build --prefix web`,
+# CI and the Dockerfile — never commit generated frontend assets)
 **/node_modules/
+*.tsbuildinfo
+web/dist/
 **/dist/
+src/Argoscope.Api/wwwroot/
+
+# Test results and coverage
+**/TestResults/
 **/coverage/
+*.trx
+*.coverage
+*.coveragexml
+
+# Local environment and secrets (never commit)
 .env
 .env.*
 !.env.example
-*.user
-*.suo
-.idea/
-.vscode/
-.DS_Store
+*.pfx
+*.pem
+secrets.json
+**/secrets*.json
+
+# Databases and operational evidence kept local
 *.db
 *.db-shm
 *.db-wal
+*.dump
+*.sql.gz
+*.bak
+ops-evidence/
 logs/
 artifacts/
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
