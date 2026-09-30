@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "id": "argoscope",
+  "kind": "product",
+  "profile": "dotnet-product",
+  "lifecycle": "active",
+  "verification": {
+    "command": "dotnet build && npm run build",
+    "gate_runtime": "driftwatchdog",
+    "evidence_status": "planned"
+  },
+  "deployment": {
+    "deployable": false,
+    "jenkins_job": null,
+    "compose_file": null
+  },
+  "discoverability": {
+    "description": "Open-source GitHub portfolio analytics for comparing project momentum, engagement, and investment priorities.",
+    "keywords": [
+      "GitHub",
+      "portfolio",
+      "analytics",
+      "open-source",
+      "project",
+      "momentum",
+      "repository",
+      "metrics",
+      "competitor",
+      "analysis"
+    ],
+    "topics": [
+      "github-analytics",
+      "open-source",
+      "portfolio-analytics",
+      "repository-metrics"
+    ],
+    "audience": [
+      "open-source-maintainers",
+      "indie-founders",
+      "developers"
+    ],
+    "use_cases": [
+      "Compare owned GitHub repositories with competitor projects over time",
+      "Rank portfolio attention using transparent configurable metrics"
+    ],
+    "search_phrases": [
+      "open-source GitHub project portfolio analytics dashboard"
+    ],
+    "homepage": "https://github.com/lileililiwen/argoscope",
+    "license_spdx": "MIT",
+    "visibility": "public"
+  }
+}

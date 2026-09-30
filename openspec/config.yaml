@@ -1,0 +1,38 @@
+schema: spec-driven
+
+context: |
+  Product: Argoscope, open-source GitHub project portfolio analytics.
+  Status: planning/bootstrap only; do not infer runtime implementation.
+  Stack: ASP.NET Core 10 API, React + TypeScript web app, PostgreSQL,
+  Hangfire, GitHub GraphQL/REST APIs, Docker; self-hosted single owner first.
+  Metrics are sourced and timestamped; calculations are deterministic from
+  snapshots; owner activity is separate from external engagement.
+  A ranking is transparent and advisory, never an automatic lifecycle decision.
+  Inspect dotnet-platform-libs before adding reusable web/persistence/job code.
+
+rules:
+  proposal:
+    - Include package boundary, dependency map, sibling architecture evidence, and non-goals.
+  design:
+    - Specify API scopes, data models, timestamp/window rules, errors, rate limits, security and verification oracles.
+  tasks:
+    - Use BFS baseline, DFS implementation, BFS regression, and verification phases.
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours

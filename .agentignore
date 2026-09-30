@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/coverage/
+**/artifacts/
+**/logs/
+*.db
+*.db-shm
+*.db-wal
+**/.env
+**/secrets*
+docs/assets/*.png
+docs/assets/*.jpg
