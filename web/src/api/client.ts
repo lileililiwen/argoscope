@@ -2,6 +2,12 @@ import type {
   BenchmarkReport,
   CollectionRunResult,
   MembershipDto,
+  PackageAdoptionReport,
+  PackageAssociationDto,
+  PackageCollectionRunResult,
+  PackageProvider,
+  PackageUnit,
+  PackageWindow,
   PortfolioDto,
   PortfolioOverview,
   RepositoryMetrics,
@@ -57,4 +63,22 @@ export const api = {
     request<ScoreConfigurationDto>('GET', `/portfolios/${portfolioId}/score-configuration`),
   putScoreConfiguration: (portfolioId: string, factors: Array<{ name: string; weight: number; enabled: boolean }>) =>
     request<ScoreConfigurationDto>('PUT', `/portfolios/${portfolioId}/score-configuration`, { factors }),
+  listPackageAssociations: (repositoryId: string) =>
+    request<PackageAssociationDto[]>('GET', `/repositories/${repositoryId}/packages`),
+  createPackageAssociation: (repositoryId: string, body: {
+    provider: PackageProvider;
+    coordinate: string;
+    defaultUnit?: PackageUnit | null;
+    defaultWindow?: PackageWindow | null;
+  }) => request<PackageAssociationDto>('POST', `/repositories/${repositoryId}/packages`, body),
+  updatePackageAssociation: (repositoryId: string, associationId: string, body: {
+    defaultUnit: PackageUnit;
+    defaultWindow: PackageWindow;
+  }) => request<PackageAssociationDto>('PUT', `/repositories/${repositoryId}/packages/${associationId}`, body),
+  removePackageAssociation: (repositoryId: string, associationId: string) =>
+    request<void>('DELETE', `/repositories/${repositoryId}/packages/${associationId}`),
+  collectPackageNow: (repositoryId: string, associationId: string) =>
+    request<PackageCollectionRunResult>('POST', `/repositories/${repositoryId}/packages/${associationId}/collect`),
+  getPackageAdoption: (repositoryId: string) =>
+    request<PackageAdoptionReport>('GET', `/repositories/${repositoryId}/adoption`),
 };

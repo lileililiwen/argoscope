@@ -158,3 +158,72 @@ export interface CollectionRunResult {
   engagementStatus: ProviderResultStatus;
   runAtUtc: string;
 }
+
+export type PackageProvider =
+  | 'DockerHub'
+  | 'Npm'
+  | 'NuGet'
+  | 'PyPI'
+  | 'CratesIo';
+
+export type PackageUnit = 'Pulls' | 'Downloads';
+export type PackageWindow = 'Daily' | 'Weekly' | 'Monthly' | 'Cumulative';
+export type PackageAssociationStatus = 'Linked' | 'AttentionRequired' | 'Removed';
+
+export interface PackageAssociationDto {
+  associationId: string;
+  repositoryId: string;
+  provider: PackageProvider;
+  coordinate: string;
+  defaultUnit: PackageUnit;
+  defaultWindow: PackageWindow;
+  status: PackageAssociationStatus;
+  attentionReason: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface PackageCollectionRunResult {
+  associationId: string;
+  observationsWritten: number;
+  observationsPreserved: number;
+  metadataStatus: ProviderResultStatus;
+  pageStatus: ProviderResultStatus;
+  diagnosticCode: string | null;
+  runAtUtc: string;
+}
+
+export interface PackageAdoptionPoint {
+  windowStartUtc: string;
+  windowEndUtc: string;
+  observedAtUtc: string;
+  value: number;
+  status: ProviderResultStatus;
+  isComplete: boolean;
+  diagnosticCode: string | null;
+}
+
+export interface PackageAdoptionSeries {
+  associationId: string;
+  provider: PackageProvider;
+  coordinate: string;
+  unit: PackageUnit;
+  window: PackageWindow;
+  firstObservedAtUtc: string;
+  lastObservedAtUtc: string;
+  expectedPoints: number;
+  actualPoints: number;
+  coverage: number;
+  status: string;
+  points: PackageAdoptionPoint[];
+}
+
+export interface PackageAdoptionReport {
+  repositoryId: string;
+  asOfUtc: string;
+  series: PackageAdoptionSeries[];
+  seriesWithData: number;
+  seriesStale: number;
+  seriesMissing: number;
+  insufficientReason: string | null;
+}

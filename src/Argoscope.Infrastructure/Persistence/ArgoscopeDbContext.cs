@@ -1,5 +1,6 @@
 using Argoscope.Domain.Engagement;
 using Argoscope.Domain.Memberships;
+using Argoscope.Domain.Packages;
 using Argoscope.Domain.Portfolios;
 using Argoscope.Domain.Repositories;
 using Argoscope.Domain.Scores;
@@ -20,6 +21,8 @@ public sealed class ArgoscopeDbContext : DbContext
     public DbSet<CollectionCheckpoint> CollectionCheckpoints => Set<CollectionCheckpoint>();
     public DbSet<EngagementBucket> EngagementBuckets => Set<EngagementBucket>();
     public DbSet<ScoreConfiguration> ScoreConfigurations => Set<ScoreConfiguration>();
+    public DbSet<PackageAssociation> PackageAssociations => Set<PackageAssociation>();
+    public DbSet<PackageObservation> PackageObservations => Set<PackageObservation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -30,6 +33,8 @@ public sealed class ArgoscopeDbContext : DbContext
         modelBuilder.ApplyConfiguration(new CollectionCheckpointConfiguration());
         modelBuilder.ApplyConfiguration(new EngagementBucketConfiguration());
         modelBuilder.ApplyConfiguration(new ScoreConfigurationConfiguration());
+        modelBuilder.ApplyConfiguration(new PackageAssociationConfiguration());
+        modelBuilder.ApplyConfiguration(new PackageObservationConfiguration());
     }
 }
 
@@ -171,5 +176,50 @@ public sealed class ScoreConfigurationConfiguration : IEntityTypeConfiguration<S
             fb.Property<bool>("Enabled").IsRequired();
         });
         b.HasIndex(s => new { s.PortfolioId, s.Version }).IsUnique();
+    }
+}
+
+public sealed class PackageAssociationConfiguration : IEntityTypeConfiguration<Domain.Packages.PackageAssociation>
+{
+    public void Configure(EntityTypeBuilder<Domain.Packages.PackageAssociation> b)
+    {
+        b.ToTable("package_associations");
+        b.HasKey(p => p.Id);
+        b.Property(p => p.Id).HasConversion(v => v.Value, v => Domain.Common.Id<Domain.Packages.PackageAssociation>.From(v));
+        b.Property(p => p.RepositoryId).HasConversion(v => v.Value, v => Domain.Common.Id<Repository>.From(v));
+        b.Property(p => p.Provider).HasConversion<int>();
+        b.Property(p => p.Coordinate).HasMaxLength(200).IsRequired();
+        b.Property(p => p.DefaultUnit).HasConversion<int>();
+        b.Property(p => p.DefaultWindow).HasConversion<int>();
+        b.Property(p => p.Status).HasConversion<int>();
+        b.Property(p => p.AttentionReason).HasMaxLength(200);
+        b.Property(p => p.CreatedAtUtc).IsRequired();
+        b.Property(p => p.UpdatedAtUtc).IsRequired();
+        b.HasIndex(p => new { p.RepositoryId, p.Provider, p.Coordinate }).IsUnique();
+    }
+}
+
+public sealed class PackageObservationConfiguration : IEntityTypeConfiguration<Domain.Packages.PackageObservation>
+{
+    public void Configure(EntityTypeBuilder<Domain.Packages.PackageObservation> b)
+    {
+        b.ToTable("package_observations");
+        b.HasKey(p => p.Id);
+        b.Property(p => p.Id).HasConversion(v => v.Value, v => Domain.Common.Id<Domain.Packages.PackageObservation>.From(v));
+        b.Property(p => p.PackageAssociationId).HasConversion(v => v.Value, v => Domain.Common.Id<Domain.Packages.PackageAssociation>.From(v));
+        b.Property(p => p.Provider).HasConversion<int>();
+        b.Property(p => p.ProviderVersion).HasMaxLength(50).IsRequired();
+        b.Property(p => p.Unit).HasConversion<int>();
+        b.Property(p => p.Window).HasConversion<int>();
+        b.Property(p => p.WindowStartUtc).IsRequired();
+        b.Property(p => p.WindowEndUtc).IsRequired();
+        b.Property(p => p.Value).IsRequired();
+        b.Property(p => p.Status).HasConversion<int>();
+        b.Property(p => p.IsComplete).IsRequired();
+        b.Property(p => p.ObservedAtUtc).IsRequired();
+        b.Property(p => p.CollectedAtUtc).IsRequired();
+        b.Property(p => p.DiagnosticCode).HasMaxLength(100);
+        b.HasIndex(p => new { p.PackageAssociationId, p.Unit, p.Window, p.WindowStartUtc, p.WindowEndUtc }).IsUnique();
+        b.HasIndex(p => p.PackageAssociationId);
     }
 }

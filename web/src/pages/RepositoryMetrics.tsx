@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { RepositoryMetrics } from '../api/types';
 import { StatusPill, formatVelocity, formatAcceleration } from './Overview';
@@ -23,6 +23,9 @@ export function RepositoryMetricsPage() {
         <h2>{data.ownerLogin}/{data.name}</h2>
         <p className="muted">Node id: <span className="kbd">{data.nodeId}</span> · visibility: {data.visibility}</p>
         <p>Latest collection status: <StatusPill status={data.latestStatus} code={data.diagnosticCode} /> · {data.lastSnapshotAtUtc ? new Date(data.lastSnapshotAtUtc).toUTCString() : 'never'}</p>
+        <p>
+          <Link to={`/repositories/${data.repositoryId}/adoption`} className="btn">View package adoption</Link>
+        </p>
       </div>
       <div className="layout-row">
         <div className="card">

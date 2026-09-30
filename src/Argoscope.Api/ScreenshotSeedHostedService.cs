@@ -1,12 +1,15 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Argoscope.Application.Collection;
+using Argoscope.Application.Packages;
 using Argoscope.Application.Portfolios;
 using Argoscope.Domain.Common;
 using Argoscope.Domain.Memberships;
+using Argoscope.Domain.Packages;
 using Argoscope.Domain.Portfolios;
 using Argoscope.Domain.Repositories;
 using Argoscope.GitHub;
+using Argoscope.Packages;
 using Microsoft.Extensions.Hosting;
 
 namespace Argoscope.Api;
@@ -54,7 +57,7 @@ public sealed class ScreenshotSeedHostedService : IHostedService
             }
             Console.WriteLine($"[seed] {seed.Repositories.Count} repositories to seed");
 
-            // 1. Seed the fake provider with synthetic observations.
+            // 1. Seed the GitHub fake provider with synthetic observations.
             var fake = _services.GetService<FakeGitHubRepositoryProvider>();
             if (fake is not null)
             {
@@ -63,13 +66,23 @@ public sealed class ScreenshotSeedHostedService : IHostedService
             }
             else
             {
-                Console.WriteLine("[seed] fake provider not registered; skipping fixture seed");
+                Console.WriteLine("[seed] GitHub fake provider not registered; skipping fixture seed");
             }
 
-            // 2. Create the portfolio, add memberships, and run a collection pass per repo.
+            // 1b. Seed the package provider fakes with synthetic
+            // observations. The fakes are pre-registered in Program.cs
+            // when the Seed config is present; the seeder just
+            // populates them.
+            SeedPackageProviders(_services, seed);
+            Console.WriteLine("[seed] package providers seeded");
+
+            // 2. Create the portfolio, add memberships, and run a
+            // collection pass per repo.
             using var scope = _services.CreateScope();
             var portfolioService = scope.ServiceProvider.GetRequiredService<PortfolioService>();
             var collectionService = scope.ServiceProvider.GetRequiredService<CollectionService>();
+            var packageAssocService = scope.ServiceProvider.GetRequiredService<PackageAssociationService>();
+            var packageCollection = scope.ServiceProvider.GetRequiredService<PackageCollectionService>();
 
             var portfolioResult = await portfolioService.CreateAsync(
                 new CreatePortfolioCommand(seed.PortfolioName ?? "Sample portfolio", DateTimeOffset.UtcNow),
@@ -97,6 +110,34 @@ public sealed class ScreenshotSeedHostedService : IHostedService
                     Id<Portfolio>.From(portfolioId), r.OwnerLogin, r.Name, today, DateTimeOffset.UtcNow),
                     CancellationToken.None).ConfigureAwait(false);
                 Console.WriteLine($"[seed] collection for {r.OwnerLogin}/{r.Name}: snapshots={run.SnapshotsWritten} repoStatus={run.RepositoryStatus} metricsStatus={run.MetricsStatus} engagementStatus={run.EngagementStatus}");
+
+                // Create owner-managed package associations and run an
+                // initial collection pass for each.
+                foreach (var pkg in r.Packages)
+                {
+                    var assocResult = await packageAssocService.CreateAsync(
+                        new CreatePackageAssociationCommand(
+                            Id<Repository>.From(add.Value.RepositoryId),
+                            Enum.Parse<PackageProvider>(pkg.Provider, ignoreCase: true),
+                            pkg.Coordinate,
+                            null, null, DateTimeOffset.UtcNow),
+                        CancellationToken.None).ConfigureAwait(false);
+                    if (!assocResult.IsSuccess)
+                    {
+                        Console.WriteLine($"[seed] AddPackage failed for {pkg.Provider}/{pkg.Coordinate}: {assocResult.Error?.Code} {assocResult.Error?.Message}");
+                        continue;
+                    }
+                    var assoc = assocResult.Value;
+                    var pUnit = Enum.Parse<PackageUnit>(assoc.DefaultUnit, ignoreCase: true);
+                    var pWindow = Enum.Parse<PackageWindow>(assoc.DefaultWindow, ignoreCase: true);
+                    var pRun = await packageCollection.RunAsync(new PackageCollectionRequest(
+                        Id<Repository>.From(add.Value.RepositoryId),
+                        Id<PackageAssociation>.From(assoc.AssociationId),
+                        Enum.Parse<PackageProvider>(assoc.Provider, ignoreCase: true),
+                        assoc.Coordinate,
+                        pUnit, pWindow, DateTimeOffset.UtcNow), CancellationToken.None).ConfigureAwait(false);
+                    Console.WriteLine($"[seed] package collection for {pkg.Provider}/{pkg.Coordinate}: written={pRun.ObservationsWritten} preserved={pRun.ObservationsPreserved} meta={pRun.MetadataStatus} page={pRun.PageStatus}");
+                }
             }
         }
         catch (Exception ex)
@@ -133,6 +174,76 @@ public sealed class ScreenshotSeedHostedService : IHostedService
         }
     }
 
+    /// <summary>
+    /// Populate each pre-registered <see cref="FakePackageMetricsProvider"/>
+    /// with the synthetic observations defined in the seed config. The
+    /// fakes are pre-registered as singletons in Program.cs so the
+    /// seeder can resolve them from the service provider without
+    /// mutating the service collection after host startup.
+    /// </summary>
+    private static void SeedPackageProviders(IServiceProvider services, SeedConfig seed)
+    {
+        var providers = new HashSet<PackageProvider>();
+        foreach (var r in seed.Repositories)
+        {
+            foreach (var pkg in r.Packages)
+            {
+                if (Enum.TryParse<PackageProvider>(pkg.Provider, ignoreCase: true, out var p))
+                {
+                    providers.Add(p);
+                }
+            }
+        }
+        if (providers.Count == 0) return;
+
+        foreach (var provider in providers)
+        {
+            // The screenshot seeder is the only consumer of the
+            // IGetAllFakePackageProviders interface; the API also
+            // exposes the individual fakes through DI but listing
+            // them all is not currently needed outside seeding.
+            var fakes = services.GetServices<IPackageMetricsProvider>()
+                .OfType<FakePackageMetricsProvider>()
+                .Where(f => f.Provider == provider)
+                .ToList();
+            foreach (var fake in fakes)
+            {
+                SeedFakePackageProvider(fake, seed, provider);
+            }
+        }
+    }
+
+    private static void SeedFakePackageProvider(FakePackageMetricsProvider fake, SeedConfig seed, PackageProvider provider)
+    {
+        var today = DateTimeOffset.UtcNow.Date;
+        foreach (var r in seed.Repositories)
+        {
+            foreach (var pkg in r.Packages)
+            {
+                if (!Enum.TryParse<PackageProvider>(pkg.Provider, ignoreCase: true, out var p) || p != provider) continue;
+                var unit = Enum.Parse<PackageUnit>(pkg.Unit, ignoreCase: true);
+                var window = Enum.Parse<PackageWindow>(pkg.Window, ignoreCase: true);
+                fake.AddExistence(pkg.Coordinate, exists: true);
+                var values = pkg.DailyValues;
+                if (values.Count == 0) continue;
+                for (var i = 0; i < values.Count; i++)
+                {
+                    var day = today.AddDays(-(values.Count - 1 - i));
+                    var windowEnd = window switch
+                    {
+                        PackageWindow.Cumulative => today.AddDays(1),
+                        PackageWindow.Daily => day.AddDays(1),
+                        PackageWindow.Weekly => day.AddDays(7),
+                        PackageWindow.Monthly => day.AddDays(30),
+                        _ => day.AddDays(1),
+                    };
+                    fake.AddObservation(new FakePackageMetricsProvider.ObservationFixture(
+                        pkg.Coordinate, unit, window, day, windowEnd, values[i], day));
+                }
+            }
+        }
+    }
+
     private static DateOnly? ParseDate(string? s) =>
         DateOnly.TryParse(s, out var d) ? d : null;
 
@@ -154,10 +265,20 @@ public sealed class ScreenshotSeedHostedService : IHostedService
         [JsonPropertyName("primaryLanguage")] public string? PrimaryLanguage { get; set; }
         [JsonPropertyName("createdOnGithub")] public string? CreatedOnGithub { get; set; }
         [JsonPropertyName("metrics")] public Dictionary<string, SeedMetric> Metrics { get; set; } = new();
+        [JsonPropertyName("packages")] public List<SeedPackage> Packages { get; set; } = new();
     }
 
     private sealed class SeedMetric
     {
         [JsonPropertyName("values")] public List<double> Values { get; set; } = new();
+    }
+
+    private sealed class SeedPackage
+    {
+        [JsonPropertyName("provider")] public string Provider { get; set; } = "";
+        [JsonPropertyName("coordinate")] public string Coordinate { get; set; } = "";
+        [JsonPropertyName("unit")] public string Unit { get; set; } = "Downloads";
+        [JsonPropertyName("window")] public string Window { get; set; } = "Daily";
+        [JsonPropertyName("dailyValues")] public List<double> DailyValues { get; set; } = new();
     }
 }

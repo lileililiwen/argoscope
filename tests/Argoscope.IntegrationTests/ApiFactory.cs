@@ -1,10 +1,12 @@
 using Argoscope.Api;
 using Argoscope.Domain.Common;
 using Argoscope.Domain.Memberships;
+using Argoscope.Domain.Packages;
 using Argoscope.Domain.Portfolios;
 using Argoscope.Domain.Repositories;
 using Argoscope.GitHub;
 using Argoscope.Infrastructure.Persistence;
+using Argoscope.Packages;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +31,18 @@ public sealed class ApiFactory : ICollectionFixture<ApiFactory>
                 services.RemoveAll<IGitHubRepositoryProvider>();
                 services.AddSingleton(fakeGitHub);
                 services.AddSingleton<IGitHubRepositoryProvider>(sp => sp.GetRequiredService<FakeGitHubRepositoryProvider>());
+
+                // Replace the stub package providers with the in-memory
+                // fakes so the package collection and adoption endpoints
+                // can be exercised deterministically.
+                services.RemoveAll<IPackageMetricsProvider>();
+                foreach (PackageProvider provider in Enum.GetValues<PackageProvider>())
+                {
+                    var fake = new FakePackageMetricsProvider(provider,
+                        providerVersion: $"fake-{provider.ToString().ToLowerInvariant()}-1");
+                    services.AddSingleton(fake);
+                    services.AddSingleton<IPackageMetricsProvider>(fake);
+                }
 
                 services.RemoveAll<DbContextOptions<ArgoscopeDbContext>>();
                 services.AddDbContext<ArgoscopeDbContext>(opts => opts.UseInMemoryDatabase("argoscope-test-shared"));

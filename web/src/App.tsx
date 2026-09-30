@@ -8,6 +8,7 @@ import { ScoreConfiguration } from './pages/ScoreConfiguration';
 import { Repositories } from './pages/Repositories';
 import { NewPortfolio } from './pages/NewPortfolio';
 import { RepositoryMetricsPage } from './pages/RepositoryMetrics';
+import { PackageAdoptionPage } from './pages/PackageAdoption';
 
 export default function App() {
   const [portfolios, setPortfolios] = useState<PortfolioDto[]>([]);
@@ -56,9 +57,16 @@ export default function App() {
         <Route path="/portfolios/:portfolioId/benchmarks" element={<PortfolioShell><Benchmarks /></PortfolioShell>} />
         <Route path="/portfolios/:portfolioId/score" element={<PortfolioShell><ScoreConfiguration /></PortfolioShell>} />
         <Route path="/repositories/:repositoryId" element={<RepositoryMetricsPage />} />
+        <Route path="/repositories/:repositoryId/adoption" element={<RepositoryAdoptionRoute />} />
       </Routes>
     </div>
   );
+}
+
+function RepositoryAdoptionRoute() {
+  const { repositoryId } = useParams();
+  if (!repositoryId) return <div className="card error">Missing repository id.</div>;
+  return <PackageAdoptionPage repositoryId={repositoryId} />;
 }
 
 function Home({ portfolios, onSelect, onRefresh }: { portfolios: PortfolioDto[]; onSelect: (id: string) => void; onRefresh: () => void }) {

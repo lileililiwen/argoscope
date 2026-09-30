@@ -21,5 +21,6 @@
     <ProjectReference Include="..\Argoscope.Domain\Argoscope.Domain.csproj" />
     <ProjectReference Include="..\Argoscope.Application\Argoscope.Application.csproj" />
     <ProjectReference Include="..\Argoscope.GitHub\Argoscope.GitHub.csproj" />
+    <ProjectReference Include="..\Argoscope.Packages\Argoscope.Packages.csproj" />
   </ItemGroup>
 </Project>

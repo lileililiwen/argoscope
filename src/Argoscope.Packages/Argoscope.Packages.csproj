@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Argoscope.Packages</RootNamespace>
+    <AssemblyName>Argoscope.Packages</AssemblyName>
+    <Description>Argoscope package provider adapters (Docker Hub, npm, NuGet, PyPI, crates.io) and the FakePackageMetricsProvider used by tests. Per-registry SDKs are kept inside the Infrastructure adapters; this project owns the contracts and fixtures only.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Argoscope.Domain\Argoscope.Domain.csproj" />
+  </ItemGroup>
+</Project>

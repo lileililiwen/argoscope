@@ -3,11 +3,13 @@ using Argoscope.Application.Benchmarks;
 using Argoscope.Application.Collection;
 using Argoscope.Application.Engagement;
 using Argoscope.Application.Metrics;
+using Argoscope.Application.Packages;
 using Argoscope.Application.Portfolios;
 using Argoscope.Application.Ranking;
 using Argoscope.Domain.Common;
 using Argoscope.Domain.Engagement;
 using Argoscope.Domain.Memberships;
+using Argoscope.Domain.Packages;
 using Argoscope.Domain.Portfolios;
 using Argoscope.Domain.Repositories;
 using Argoscope.Domain.Scores;
@@ -199,5 +201,119 @@ public sealed class EfScoreConfigurationStore : IScoreConfigurationStore
     {
         await _db.ScoreConfigurations.AddAsync(configuration, cancellationToken).ConfigureAwait(false);
         await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+}
+
+public sealed class EfPackageAssociationStore : IPackageAssociationStore
+{
+    private readonly ArgoscopeDbContext _db;
+    public EfPackageAssociationStore(ArgoscopeDbContext db) => _db = db;
+
+    public Task<PackageAssociation?> FindAsync(Id<PackageAssociation> id, CancellationToken cancellationToken) =>
+        _db.PackageAssociations.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+
+    public Task<PackageAssociation?> FindByRepositoryAndCoordinateAsync(
+        Id<Repository> repositoryId, PackageProvider provider, string coordinate, CancellationToken cancellationToken) =>
+        _db.PackageAssociations.FirstOrDefaultAsync(
+            p => p.RepositoryId == repositoryId && p.Provider == provider && p.Coordinate == coordinate,
+            cancellationToken);
+
+    public async Task<IReadOnlyList<PackageAssociation>> ListByRepositoryAsync(
+        Id<Repository> repositoryId, CancellationToken cancellationToken) =>
+        await _db.PackageAssociations
+            .Where(p => p.RepositoryId == repositoryId)
+            .OrderBy(p => p.CreatedAtUtc)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+    public async Task<PackageAssociation> AddAsync(PackageAssociation association, CancellationToken cancellationToken)
+    {
+        await _db.PackageAssociations.AddAsync(association, cancellationToken).ConfigureAwait(false);
+        await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return association;
+    }
+
+    public async Task UpdateAsync(PackageAssociation association, CancellationToken cancellationToken)
+    {
+        _db.PackageAssociations.Update(association);
+        await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task RemoveAsync(Id<PackageAssociation> id, CancellationToken cancellationToken)
+    {
+        var entity = await _db.PackageAssociations.FirstOrDefaultAsync(p => p.Id == id, cancellationToken).ConfigureAwait(false);
+        if (entity is null) return;
+        _db.PackageAssociations.Remove(entity);
+        await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+}
+
+public sealed class EfPackageObservationStore : IPackageObservationStore
+{
+    private readonly ArgoscopeDbContext _db;
+    public EfPackageObservationStore(ArgoscopeDbContext db) => _db = db;
+
+    public Task<PackageObservation?> FindAsync(
+        Id<PackageAssociation> associationId,
+        PackageUnit unit,
+        PackageWindow window,
+        DateTimeOffset windowStartUtc,
+        DateTimeOffset windowEndUtc,
+        CancellationToken cancellationToken) =>
+        _db.PackageObservations.FirstOrDefaultAsync(
+            p => p.PackageAssociationId == associationId
+                && p.Unit == unit
+                && p.Window == window
+                && p.WindowStartUtc == windowStartUtc
+                && p.WindowEndUtc == windowEndUtc,
+            cancellationToken);
+
+    public async Task<PackageObservation> UpsertAsync(PackageObservation observation, CancellationToken cancellationToken)
+    {
+        var existing = await FindAsync(
+            observation.PackageAssociationId, observation.Unit, observation.Window,
+            observation.WindowStartUtc, observation.WindowEndUtc, cancellationToken)
+            .ConfigureAwait(false);
+        if (existing is not null)
+        {
+            // Last-good: do not overwrite a previously stored complete
+            // observation with a partial one. A new complete observation
+            // replaces the prior one.
+            if (existing.IsComplete && !observation.IsComplete)
+            {
+                return existing;
+            }
+            _db.PackageObservations.Remove(existing);
+        }
+        await _db.PackageObservations.AddAsync(observation, cancellationToken).ConfigureAwait(false);
+        await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return observation;
+    }
+
+    public async Task<IReadOnlyList<PackageObservation>> ListByAssociationAsync(
+        Id<PackageAssociation> associationId, CancellationToken cancellationToken) =>
+        await _db.PackageObservations
+            .Where(p => p.PackageAssociationId == associationId)
+            .OrderBy(p => p.WindowStartUtc)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+    public async Task<IReadOnlyList<PackageObservation>> ListByRepositoryAsync(
+        Id<Repository> repositoryId, CancellationToken cancellationToken)
+    {
+        var associationIds = await _db.PackageAssociations
+            .Where(p => p.RepositoryId == repositoryId)
+            .Select(p => p.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (associationIds.Count == 0)
+        {
+            return Array.Empty<PackageObservation>();
+        }
+        return await _db.PackageObservations
+            .Where(p => associationIds.Contains(p.PackageAssociationId))
+            .OrderBy(p => p.WindowStartUtc)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 }

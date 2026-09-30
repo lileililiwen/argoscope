@@ -2,10 +2,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Argoscope.Application.Analytics;
 using Argoscope.Application.Collection;
+using Argoscope.Application.Packages;
 using Argoscope.Application.Portfolios;
 using Argoscope.Application.Ranking;
 using Argoscope.Domain.Common;
 using Argoscope.Domain.Memberships;
+using Argoscope.Domain.Packages;
 using Argoscope.Domain.Portfolios;
 using Argoscope.Domain.Repositories;
 using Argoscope.Domain.Scores;
@@ -25,7 +27,7 @@ public static class ArgoscopeJson
     {
         WriteIndented = false,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter() },
+        Converters = { new JsonStringEnumConverter(), new IdJsonConverter() },
     };
 
     public static void Apply(JsonSerializerOptions target)
@@ -62,6 +64,15 @@ public static class ArgoscopeApiModule
         v1.MapPut("/portfolios/{portfolioId:guid}/score-configuration", (Guid portfolioId, ScoreConfigurationRequest request, PriorityScoreService svc, CancellationToken ct) => PutScoreConfigurationAsync(portfolioId, request, svc, ct));
         v1.MapGet("/repositories/{repositoryId:guid}/metrics", (Guid repositoryId, AnalyticsService svc, CancellationToken ct) => GetRepositoryMetricsAsync(repositoryId, svc, ct));
         v1.MapPost("/portfolios/{portfolioId:guid}/repositories/{repositoryId:guid}/collect", (Guid portfolioId, Guid repositoryId, CollectionService svc, IRepositoryStore store, CancellationToken ct) => CollectNowAsync(portfolioId, repositoryId, svc, store, ct));
+
+        // Package adoption: owner-managed associations, on-demand
+        // collection, and the read-side adoption report.
+        v1.MapGet("/repositories/{repositoryId:guid}/packages", (Guid repositoryId, PackageAssociationService svc, CancellationToken ct) => ListPackageAssociationsAsync(repositoryId, svc, ct));
+        v1.MapPost("/repositories/{repositoryId:guid}/packages", (Guid repositoryId, CreatePackageAssociationRequest request, PackageAssociationService svc, CancellationToken ct) => CreatePackageAssociationAsync(repositoryId, request, svc, ct));
+        v1.MapPut("/repositories/{repositoryId:guid}/packages/{associationId:guid}", (Guid repositoryId, Guid associationId, UpdatePackageAssociationRequest request, PackageAssociationService svc, CancellationToken ct) => UpdatePackageAssociationAsync(repositoryId, associationId, request, svc, ct));
+        v1.MapDelete("/repositories/{repositoryId:guid}/packages/{associationId:guid}", (Guid repositoryId, Guid associationId, PackageAssociationService svc, CancellationToken ct) => RemovePackageAssociationAsync(repositoryId, associationId, svc, ct));
+        v1.MapPost("/repositories/{repositoryId:guid}/packages/{associationId:guid}/collect", (Guid repositoryId, Guid associationId, PackageCollectionService svc, PackageAssociationService assocSvc, CancellationToken ct) => CollectPackageNowAsync(repositoryId, associationId, svc, assocSvc, ct));
+        v1.MapGet("/repositories/{repositoryId:guid}/adoption", (Guid repositoryId, PackageAdoptionService svc, CancellationToken ct) => GetAdoptionAsync(repositoryId, svc, ct));
 
         return builder;
     }
@@ -240,6 +251,159 @@ public static class ArgoscopeApiModule
         return Results.Ok(result);
     }
 
+    private static async Task<IResult> ListPackageAssociationsAsync(Guid repositoryId, PackageAssociationService svc, CancellationToken ct)
+    {
+        var list = await svc.ListByRepositoryAsync(Id<Repository>.From(repositoryId), ct).ConfigureAwait(false);
+        return Results.Ok(list);
+    }
+
+    private static async Task<IResult> CreatePackageAssociationAsync(
+        Guid repositoryId,
+        CreatePackageAssociationRequest request,
+        PackageAssociationService svc,
+        CancellationToken ct)
+    {
+        if (request is null
+            || string.IsNullOrWhiteSpace(request.Provider)
+            || string.IsNullOrWhiteSpace(request.Coordinate))
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation", "Provider and coordinate are required.");
+        }
+        if (!Enum.TryParse<PackageProvider>(request.Provider, ignoreCase: true, out var provider))
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation",
+                $"Provider must be one of: {string.Join(", ", Enum.GetNames<PackageProvider>())}.");
+        }
+        PackageUnit? unit = null;
+        PackageWindow? window = null;
+        if (!string.IsNullOrWhiteSpace(request.DefaultUnit))
+        {
+            if (!Enum.TryParse<PackageUnit>(request.DefaultUnit, ignoreCase: true, out var parsedUnit))
+            {
+                return Problem(StatusCodes.Status400BadRequest, "validation",
+                    $"DefaultUnit must be one of: {string.Join(", ", Enum.GetNames<PackageUnit>())}.");
+            }
+            unit = parsedUnit;
+        }
+        if (!string.IsNullOrWhiteSpace(request.DefaultWindow))
+        {
+            if (!Enum.TryParse<PackageWindow>(request.DefaultWindow, ignoreCase: true, out var parsedWindow))
+            {
+                return Problem(StatusCodes.Status400BadRequest, "validation",
+                    $"DefaultWindow must be one of: {string.Join(", ", Enum.GetNames<PackageWindow>())}.");
+            }
+            window = parsedWindow;
+        }
+        var result = await svc.CreateAsync(
+            new CreatePackageAssociationCommand(
+                Id<Repository>.From(repositoryId),
+                provider,
+                request.Coordinate,
+                unit,
+                window,
+                DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            var code = result.Error!.Value.Code;
+            return Problem(
+                code == "not_found" ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest,
+                code,
+                result.Error.Value.Message);
+        }
+        return Results.Created($"/api/v1/repositories/{repositoryId}/packages/{result.Value.AssociationId}", result.Value);
+    }
+
+    private static async Task<IResult> UpdatePackageAssociationAsync(
+        Guid repositoryId,
+        Guid associationId,
+        UpdatePackageAssociationRequest request,
+        PackageAssociationService svc,
+        CancellationToken ct)
+    {
+        if (request is null
+            || string.IsNullOrWhiteSpace(request.DefaultUnit)
+            || string.IsNullOrWhiteSpace(request.DefaultWindow))
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation", "DefaultUnit and DefaultWindow are required.");
+        }
+        if (!Enum.TryParse<PackageUnit>(request.DefaultUnit, ignoreCase: true, out var unit))
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation",
+                $"DefaultUnit must be one of: {string.Join(", ", Enum.GetNames<PackageUnit>())}.");
+        }
+        if (!Enum.TryParse<PackageWindow>(request.DefaultWindow, ignoreCase: true, out var window))
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation",
+                $"DefaultWindow must be one of: {string.Join(", ", Enum.GetNames<PackageWindow>())}.");
+        }
+        var result = await svc.UpdateAsync(
+            new UpdatePackageAssociationCommand(Id<PackageAssociation>.From(associationId), unit, window, DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            var code = result.Error!.Value.Code;
+            var status = code switch
+            {
+                "not_found" => StatusCodes.Status404NotFound,
+                "conflict" => StatusCodes.Status409Conflict,
+                _ => StatusCodes.Status400BadRequest,
+            };
+            return Problem(status, code, result.Error.Value.Message);
+        }
+        return Results.Ok(result.Value);
+    }
+
+    private static async Task<IResult> RemovePackageAssociationAsync(Guid repositoryId, Guid associationId, PackageAssociationService svc, CancellationToken ct)
+    {
+        var result = await svc.RemoveAsync(
+            new RemovePackageAssociationCommand(Id<PackageAssociation>.From(associationId), DateTimeOffset.UtcNow), ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            var code = result.Error!.Value.Code;
+            return Problem(code == "not_found" ? StatusCodes.Status404NotFound : StatusCodes.Status400BadRequest, code, result.Error.Value.Message);
+        }
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> CollectPackageNowAsync(
+        Guid repositoryId,
+        Guid associationId,
+        PackageCollectionService svc,
+        PackageAssociationService assocSvc,
+        CancellationToken ct)
+    {
+        var list = await assocSvc.ListByRepositoryAsync(Id<Repository>.From(repositoryId), ct).ConfigureAwait(false);
+        var assoc = list.FirstOrDefault(a => a.AssociationId == associationId);
+        if (assoc is null)
+        {
+            return Results.NotFound();
+        }
+        if (!Enum.TryParse<PackageProvider>(assoc.Provider, out var provider)
+            || !Enum.TryParse<PackageUnit>(assoc.DefaultUnit, out var unit)
+            || !Enum.TryParse<PackageWindow>(assoc.DefaultWindow, out var window))
+        {
+            return Problem(StatusCodes.Status500InternalServerError, "validation", "Association has invalid provider/unit/window.");
+        }
+        var result = await svc.RunAsync(
+            new PackageCollectionRequest(
+                Id<Repository>.From(repositoryId),
+                Id<PackageAssociation>.From(associationId),
+                provider,
+                assoc.Coordinate,
+                unit,
+                window,
+                DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+        return Results.Ok(result);
+    }
+
+    private static async Task<IResult> GetAdoptionAsync(Guid repositoryId, PackageAdoptionService svc, CancellationToken ct)
+    {
+        var report = await svc.BuildForRepositoryAsync(Id<Repository>.From(repositoryId), ct).ConfigureAwait(false);
+        return report is null ? Results.NotFound() : Results.Ok(report);
+    }
+
     private static IResult Problem(int statusCode, string code, string detail) =>
         Results.Problem(statusCode: statusCode, title: code, detail: detail);
 }
@@ -256,3 +420,13 @@ public sealed record ScoreFactorRequest(string Name, double Weight, bool Enabled
 public sealed record ScoreConfigurationRequest(IReadOnlyList<ScoreFactorRequest> Factors);
 
 public sealed record ScoreConfigurationDto(int Version, IReadOnlyList<ScoreFactor> Factors, bool IsDefault);
+
+public sealed record CreatePackageAssociationRequest(
+    string Provider,
+    string Coordinate,
+    string? DefaultUnit,
+    string? DefaultWindow);
+
+public sealed record UpdatePackageAssociationRequest(
+    string DefaultUnit,
+    string DefaultWindow);
