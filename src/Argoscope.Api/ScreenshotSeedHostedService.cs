@@ -83,6 +83,7 @@ public sealed class ScreenshotSeedHostedService : IHostedService
             var collectionService = scope.ServiceProvider.GetRequiredService<CollectionService>();
             var packageAssocService = scope.ServiceProvider.GetRequiredService<PackageAssociationService>();
             var packageCollection = scope.ServiceProvider.GetRequiredService<PackageCollectionService>();
+            var signalService = scope.ServiceProvider.GetService<Argoscope.Application.Signals.CommercialSignalService>();
 
             var portfolioResult = await portfolioService.CreateAsync(
                 new CreatePortfolioCommand(seed.PortfolioName ?? "Sample portfolio", DateTimeOffset.UtcNow),
@@ -138,6 +139,21 @@ public sealed class ScreenshotSeedHostedService : IHostedService
                         pUnit, pWindow, DateTimeOffset.UtcNow), CancellationToken.None).ConfigureAwait(false);
                     Console.WriteLine($"[seed] package collection for {pkg.Provider}/{pkg.Coordinate}: written={pRun.ObservationsWritten} preserved={pRun.ObservationsPreserved} meta={pRun.MetadataStatus} page={pRun.PageStatus}");
                 }
+
+                // Seed eligible issue/PR text into the fake source provider
+                // and run the advisory classifier once so the signals queue
+                // has synthetic content for docs screenshots.
+                if (fake is not null && signalService is not null)
+                {
+                    SeedCommercialSources(fake, r);
+                    var sRun = await signalService.CollectAsync(
+                        new Argoscope.Application.Signals.CollectSignalsCommand(
+                            Id<Repository>.From(add.Value.RepositoryId), DateTimeOffset.UtcNow),
+                        CancellationToken.None).ConfigureAwait(false);
+                    Console.WriteLine(sRun.IsSuccess
+                        ? $"[seed] signals for {r.OwnerLogin}/{r.Name}: created={sRun.Value.Created} duplicates={sRun.Value.Duplicates} retryable={sRun.Value.Retried}"
+                        : $"[seed] signals failed for {r.OwnerLogin}/{r.Name}: {sRun.Error?.Code} {sRun.Error?.Message}");
+                }
             }
         }
         catch (Exception ex)
@@ -145,6 +161,35 @@ public sealed class ScreenshotSeedHostedService : IHostedService
             // Seeder is best-effort; never crash the host.
             Console.WriteLine($"[seed] FAILED: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
         }
+    }
+
+    private static void SeedCommercialSources(FakeGitHubRepositoryProvider fake, SeedRepo r)
+    {
+        // Synthetic eligible issue/PR text only: one hosted request, one
+        // support question, one plain bug (NotCommercial). Secrets are
+        // intentionally included to exercise redaction in the stored excerpt.
+        var now = DateTimeOffset.UtcNow;
+        fake.AddSource(new Argoscope.GitHub.CommercialSourceInput(
+            Argoscope.Domain.Signals.SignalSourceType.Issue, 101,
+            $"https://github.com/{r.OwnerLogin}/{r.Name}/issues/101",
+            now.AddDays(-2),
+            "Hosted version for our team?",
+            "We would love managed hosting for our org. Reach me at buyer@example.com."),
+            r.OwnerLogin, r.Name);
+        fake.AddSource(new Argoscope.GitHub.CommercialSourceInput(
+            Argoscope.Domain.Signals.SignalSourceType.Issue, 102,
+            $"https://github.com/{r.OwnerLogin}/{r.Name}/issues/102",
+            now.AddDays(-1),
+            "Support contract with SLA?",
+            "Do you offer a paid support plan with an SLA for enterprises?"),
+            r.OwnerLogin, r.Name);
+        fake.AddSource(new Argoscope.GitHub.CommercialSourceInput(
+            Argoscope.Domain.Signals.SignalSourceType.PullRequest, 103,
+            $"https://github.com/{r.OwnerLogin}/{r.Name}/pull/103",
+            now,
+            "Fix crash on startup",
+            "Bug: stack trace on startup, here is a repro. No commercial intent."),
+            r.OwnerLogin, r.Name);
     }
 
     private static void SeedFakeProvider(FakeGitHubRepositoryProvider fake, SeedConfig seed)

@@ -1,10 +1,12 @@
 using Argoscope.Application.Collection;
 using Argoscope.Application.Packages;
+using Argoscope.Application.Signals;
 using Argoscope.Domain.Common;
 using Argoscope.Domain.Decisions;
 using Argoscope.Domain.Packages;
 using Argoscope.Domain.Portfolios;
 using Argoscope.Domain.Repositories;
+using Argoscope.Domain.Signals;
 using Argoscope.Domain.Snapshots;
 
 namespace Argoscope.Application.Decisions;
@@ -35,19 +37,22 @@ public sealed class DecisionEvidenceResolver
     private readonly IMetricSnapshotStore _snapshots;
     private readonly IPackageAssociationStore _packageAssociations;
     private readonly IPackageObservationStore _packageObservations;
+    private readonly ICommercialSignalStore? _signals;
 
     public DecisionEvidenceResolver(
         IPortfolioRepository portfolios,
         IMembershipStore memberships,
         IMetricSnapshotStore snapshots,
         IPackageAssociationStore packageAssociations,
-        IPackageObservationStore packageObservations)
+        IPackageObservationStore packageObservations,
+        ICommercialSignalStore? signals = null)
     {
         _portfolios = portfolios;
         _memberships = memberships;
         _snapshots = snapshots;
         _packageAssociations = packageAssociations;
         _packageObservations = packageObservations;
+        _signals = signals;
     }
 
     /// <summary>
@@ -72,14 +77,8 @@ public sealed class DecisionEvidenceResolver
                 return await ResolvePackageObservationAsync(portfolioId, referenceId, cancellationToken)
                     .ConfigureAwait(false);
             case DecisionEvidenceKind.CommercialSignal:
-                // Not yet implemented in argoscope; surface the
-                // reference as unresolved with a descriptive
-                // destination so the UI can still display the
-                // broken-link marker.
-                return new DecisionEvidenceTarget(
-                    DecisionEvidenceResolution.Unresolved,
-                    "commercial-signal (not yet collected)",
-                    null);
+                return await ResolveCommercialSignalAsync(portfolioId, referenceId, cancellationToken)
+                    .ConfigureAwait(false);
             default:
                 return new DecisionEvidenceTarget(
                     DecisionEvidenceResolution.Unresolved,
@@ -150,6 +149,40 @@ public sealed class DecisionEvidenceResolver
             DecisionEvidenceResolution.Resolved,
             $"package-observation @ {observation.WindowStartUtc:yyyy-MM-dd}",
             DateOnly.FromDateTime(observation.WindowStartUtc.UtcDateTime));
+    }
+
+    private async Task<DecisionEvidenceTarget> ResolveCommercialSignalAsync(
+        Id<Portfolio> portfolioId, Guid referenceId, CancellationToken cancellationToken)
+    {
+        if (_signals is null)
+        {
+            return new DecisionEvidenceTarget(
+                DecisionEvidenceResolution.Unresolved,
+                "commercial-signal (not yet collected)",
+                null);
+        }
+        var signal = await _signals
+            .FindAsync(Id<CommercialSignal>.From(referenceId), cancellationToken)
+            .ConfigureAwait(false);
+        if (signal is null)
+        {
+            return new DecisionEvidenceTarget(
+                DecisionEvidenceResolution.Unresolved,
+                $"commercial-signal:{referenceId}",
+                null);
+        }
+        if (!await IsRepositoryInPortfolioAsync(portfolioId, signal.RepositoryId, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            return new DecisionEvidenceTarget(
+                DecisionEvidenceResolution.Unresolved,
+                $"commercial-signal:{referenceId} (cross-portfolio)",
+                DateOnly.FromDateTime(signal.SourceUpdatedAtUtc.UtcDateTime));
+        }
+        return new DecisionEvidenceTarget(
+            DecisionEvidenceResolution.Resolved,
+            $"commercial-signal {signal.SourceType} #{signal.SourceNumber} ({signal.Category}/{signal.Status})",
+            DateOnly.FromDateTime(signal.SourceUpdatedAtUtc.UtcDateTime));
     }
 
     private async Task<bool> IsRepositoryInPortfolioAsync(

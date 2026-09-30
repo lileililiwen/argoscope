@@ -331,3 +331,57 @@ export interface AlertEvaluationDto {
   evaluatedAtUtc: string;
   attempts: DeliveryAttemptDto[];
 }
+
+export type SignalSourceType = 'Issue' | 'PullRequest';
+export type SignalCategory =
+  | 'HostedRequest'
+  | 'PaidSupport'
+  | 'EnterpriseCapability'
+  | 'ProcurementQuestion'
+  | 'NotCommercial'
+  | 'Unclear'
+  | 'Unclassified';
+export type SignalStatus = 'Pending' | 'Accepted' | 'Rejected' | 'Corrected' | 'NeedsRetry';
+export type ReviewDecision = 'Accept' | 'Reject' | 'Correct';
+
+export interface CommercialSignalDto {
+  signalId: string;
+  repositoryId: string;
+  sourceType: SignalSourceType;
+  sourceNumber: number;
+  sourceUrl: string;
+  sourceUpdatedAtUtc: string;
+  contentHash: string;
+  excerpt: string;
+  sourceAvailable: boolean;
+  suggestionVersion: number;
+  category: SignalCategory;
+  confidence: number;
+  classifierVersion: string;
+  rationale: string;
+  status: SignalStatus;
+  correctedCategory: SignalCategory | null;
+  reviewer: string | null;
+  reviewedAtUtc: string | null;
+  version: number;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface SignalReviewDto {
+  revisionNumber: number;
+  decision: string;
+  priorCategory: string;
+  priorStatus: string;
+  correctedCategory: string | null;
+  reviewer: string;
+  occurredAtUtc: string;
+  note: string | null;
+}
+
+export interface CollectSignalsResultDto {
+  created: number;
+  duplicates: number;
+  retried: number;
+  markedUnavailable: number;
+}

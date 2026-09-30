@@ -2,7 +2,9 @@ import type {
   AlertEvaluationDto,
   AlertRuleDto,
   BenchmarkReport,
+  CollectSignalsResultDto,
   CollectionRunResult,
+  CommercialSignalDto,
   DecisionEntryDto,
   DecisionRevisionDto,
   DecisionType,
@@ -18,6 +20,7 @@ import type {
   PortfolioOverview,
   RepositoryMetrics,
   ScoreConfigurationDto,
+  SignalReviewDto,
 } from './types';
 
 const base = '/api/v1';
@@ -169,4 +172,16 @@ export const api = {
     request<AlertEvaluationDto>('POST', `/portfolios/${portfolioId}/alert-rules/${ruleId}/evaluate`),
   listAlerts: (portfolioId: string, limit = 50) =>
     request<AlertEvaluationDto[]>('GET', `/portfolios/${portfolioId}/alerts?limit=${limit}`),
+  listSignals: (repositoryId: string, state?: string) =>
+    request<CommercialSignalDto[]>('GET', `/repositories/${repositoryId}/commercial-signals${state ? `?state=${state}` : ''}`),
+  collectSignals: (repositoryId: string) =>
+    request<CollectSignalsResultDto>('POST', `/repositories/${repositoryId}/commercial-signals/collect`),
+  getSignalReviews: (repositoryId: string, signalId: string) =>
+    request<SignalReviewDto[]>('GET', `/repositories/${repositoryId}/commercial-signals/${signalId}/reviews`),
+  reviewSignal: (repositoryId: string, signalId: string, body: {
+    expectedVersion: number;
+    decision: string;
+    correctedCategory?: string | null;
+    note?: string | null;
+  }) => request<CommercialSignalDto>('PATCH', `/repositories/${repositoryId}/commercial-signals/${signalId}/review`, body),
 };

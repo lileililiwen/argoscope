@@ -475,6 +475,98 @@ public class ApiEndToEndTests
             });
         Assert.Equal(HttpStatusCode.Conflict, conflictResp.StatusCode);
     }
+
+    [Fact]
+    public async Task CommercialSignals_CollectReviewQueue_StaleConflict()
+    {
+        using var client = _factory.CreateClient();
+
+        var portfolio = await (await client.PostAsJsonAsync("/api/v1/portfolios", new { name = "Signals" }))
+            .Content.ReadFromJsonAsync<PortfolioDto>();
+        var member = await (await client.PostAsJsonAsync($"/api/v1/portfolios/{portfolio!.Id}/repositories", new
+        {
+            nodeId = "node-signal-1",
+            ownerLogin = "octo",
+            name = "signal-repo",
+            visibility = "Public",
+            role = "Owned",
+            lifecycle = "OpenSource",
+        })).Content.ReadFromJsonAsync<MembershipDto>();
+
+        // Seed eligible issue text through the fake source provider: one
+        // commercial request with a secret that must be redacted, one empty
+        // source that must not produce a suggestion.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var fake = scope.ServiceProvider.GetRequiredService<Argoscope.GitHub.FakeGitHubRepositoryProvider>();
+            fake.AddSource(new Argoscope.GitHub.CommercialSourceInput(
+                Argoscope.Domain.Signals.SignalSourceType.Issue, 101,
+                "https://github.com/octo/signal-repo/issues/101",
+                DateTimeOffset.UtcNow, "Hosted version for our team?",
+                "We want managed hosting. Contact buyer@example.com, token ghp_fixture123."), "octo", "signal-repo");
+            fake.AddSource(new Argoscope.GitHub.CommercialSourceInput(
+                Argoscope.Domain.Signals.SignalSourceType.PullRequest, 102,
+                "https://github.com/octo/signal-repo/pull/102",
+                DateTimeOffset.UtcNow, "", "   "), "octo", "signal-repo");
+        }
+
+        var collect = await client.PostAsync(
+            $"/api/v1/repositories/{member!.RepositoryId}/commercial-signals/collect", content: null);
+        Assert.Equal(HttpStatusCode.OK, collect.StatusCode);
+        var run = await collect.Content.ReadFromJsonAsync<CollectSignalsResultDto>();
+        Assert.Equal(1, run!.Created);
+
+        // Repeat: idempotent duplicate, no new row.
+        var again = await client.PostAsync(
+            $"/api/v1/repositories/{member.RepositoryId}/commercial-signals/collect", content: null);
+        var run2 = await again.Content.ReadFromJsonAsync<CollectSignalsResultDto>();
+        Assert.Equal(1, run2!.Duplicates);
+
+        var list = await (await client.GetAsync(
+            $"/api/v1/repositories/{member.RepositoryId}/commercial-signals?state=pending"))
+            .Content.ReadFromJsonAsync<List<CommercialSignalDto>>();
+        Assert.Single(list!);
+        var signal = list![0];
+        Assert.Equal("HostedRequest", signal.Category);
+        Assert.Equal("Pending", signal.Status);
+        Assert.Equal(1, signal.SuggestionVersion);
+        Assert.DoesNotContain("buyer@example.com", signal.Excerpt);
+        Assert.DoesNotContain("ghp_fixture123", signal.Excerpt);
+
+        // Review with correction; stale version then conflicts.
+        var review = await client.PatchAsJsonAsync(
+            $"/api/v1/repositories/{member.RepositoryId}/commercial-signals/{signal.SignalId}/review", new
+            {
+                expectedVersion = signal.Version,
+                decision = "Correct",
+                correctedCategory = "PaidSupport",
+                note = "actually support",
+            });
+        Assert.Equal(HttpStatusCode.OK, review.StatusCode);
+        var reviewed = await review.Content.ReadFromJsonAsync<CommercialSignalDto>();
+        Assert.Equal("Corrected", reviewed!.Status);
+        Assert.Equal("PaidSupport", reviewed.CorrectedCategory);
+
+        var stale = await client.PatchAsJsonAsync(
+            $"/api/v1/repositories/{member.RepositoryId}/commercial-signals/{signal.SignalId}/review", new
+            {
+                expectedVersion = signal.Version,
+                decision = "Reject",
+            });
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+
+        // Queue filters and immutable audit readback.
+        var reviewedList = await (await client.GetAsync(
+            $"/api/v1/repositories/{member.RepositoryId}/commercial-signals?state=reviewed"))
+            .Content.ReadFromJsonAsync<List<CommercialSignalDto>>();
+        Assert.Single(reviewedList!);
+        var audits = await (await client.GetAsync(
+            $"/api/v1/repositories/{member.RepositoryId}/commercial-signals/{signal.SignalId}/reviews"))
+            .Content.ReadFromJsonAsync<List<SignalReviewDto>>();
+        Assert.Single(audits!);
+        Assert.Equal("HostedRequest", audits![0].PriorCategory);
+        Assert.Equal("Correct", audits[0].Decision);
+    }
 }
 
 public sealed record OverviewEnvelope(Guid PortfolioId, string Window, DateOnly WindowStart, DateOnly WindowEnd, DateTimeOffset AsOfUtc, List<OverviewRowDto> Rows);
@@ -621,3 +713,42 @@ public sealed record AlertAttemptDto(
     string? Error,
     DateTimeOffset? NextRetryAtUtc,
     DateTimeOffset CreatedAtUtc);
+
+public sealed record CollectSignalsResultDto(
+    int Created,
+    int Duplicates,
+    int Retried,
+    int MarkedUnavailable);
+
+public sealed record CommercialSignalDto(
+    Guid SignalId,
+    Guid RepositoryId,
+    string SourceType,
+    int SourceNumber,
+    string SourceUrl,
+    DateTimeOffset SourceUpdatedAtUtc,
+    string ContentHash,
+    string Excerpt,
+    bool SourceAvailable,
+    int SuggestionVersion,
+    string Category,
+    double Confidence,
+    string ClassifierVersion,
+    string Rationale,
+    string Status,
+    string? CorrectedCategory,
+    string? Reviewer,
+    DateTimeOffset? ReviewedAtUtc,
+    int Version,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
+
+public sealed record SignalReviewDto(
+    int RevisionNumber,
+    string Decision,
+    string PriorCategory,
+    string PriorStatus,
+    string? CorrectedCategory,
+    string Reviewer,
+    DateTimeOffset OccurredAtUtc,
+    string? Note);

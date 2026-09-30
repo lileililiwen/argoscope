@@ -6,6 +6,7 @@ using Argoscope.Domain.Packages;
 using Argoscope.Domain.Portfolios;
 using Argoscope.Domain.Repositories;
 using Argoscope.Domain.Scores;
+using Argoscope.Domain.Signals;
 using Argoscope.Domain.Snapshots;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -31,6 +32,8 @@ public sealed class ArgoscopeDbContext : DbContext
     public DbSet<AlertRule> AlertRules => Set<AlertRule>();
     public DbSet<AlertEvaluation> AlertEvaluations => Set<AlertEvaluation>();
     public DbSet<DeliveryAttempt> DeliveryAttempts => Set<DeliveryAttempt>();
+    public DbSet<CommercialSignal> CommercialSignals => Set<CommercialSignal>();
+    public DbSet<SignalReview> SignalReviews => Set<SignalReview>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,6 +52,8 @@ public sealed class ArgoscopeDbContext : DbContext
         modelBuilder.ApplyConfiguration(new AlertRuleConfiguration());
         modelBuilder.ApplyConfiguration(new AlertEvaluationConfiguration());
         modelBuilder.ApplyConfiguration(new DeliveryAttemptConfiguration());
+        modelBuilder.ApplyConfiguration(new CommercialSignalConfiguration());
+        modelBuilder.ApplyConfiguration(new SignalReviewConfiguration());
     }
 }
 
@@ -367,5 +372,58 @@ public sealed class DeliveryAttemptConfiguration : IEntityTypeConfiguration<Deli
         b.Property(a => a.UpdatedAtUtc).IsRequired();
         b.HasIndex(a => new { a.EvaluationId, a.AttemptNumber }).IsUnique();
         b.HasIndex(a => a.EvaluationId);
+    }
+}
+
+public sealed class CommercialSignalConfiguration : IEntityTypeConfiguration<CommercialSignal>
+{
+    public void Configure(EntityTypeBuilder<CommercialSignal> b)
+    {
+        b.ToTable("commercial_signals");
+        b.HasKey(s => s.Id);
+        b.Property(s => s.Id).HasConversion(v => v.Value, v => Domain.Common.Id<CommercialSignal>.From(v));
+        b.Property(s => s.RepositoryId).HasConversion(v => v.Value, v => Domain.Common.Id<Domain.Repositories.Repository>.From(v));
+        b.Property(s => s.SourceType).HasConversion<int>();
+        b.Property(s => s.SourceNumber).IsRequired();
+        b.Property(s => s.SourceUrl).HasMaxLength(500).IsRequired();
+        b.Property(s => s.SourceUpdatedAtUtc).IsRequired();
+        b.Property(s => s.ContentHash).HasMaxLength(64).IsRequired();
+        b.Property(s => s.Excerpt).HasColumnType("text").IsRequired();
+        b.Property(s => s.SourceAvailable).IsRequired();
+        b.Property(s => s.SuggestionVersion).IsRequired();
+        b.Property(s => s.Category).HasConversion<int>();
+        b.Property(s => s.Confidence).IsRequired();
+        b.Property(s => s.ClassifierVersion).HasMaxLength(50).IsRequired();
+        b.Property(s => s.Rationale).HasMaxLength(CommercialSignal.MaxRationaleLength).IsRequired();
+        b.Property(s => s.Status).HasConversion<int>();
+        b.Property(s => s.CorrectedCategory).HasConversion<int>();
+        b.Property(s => s.Reviewer).HasMaxLength(CommercialSignal.MaxReviewerLength);
+        b.Property(s => s.ReviewedAtUtc);
+        b.Property(s => s.Version).IsConcurrencyToken().IsRequired();
+        b.Property(s => s.CreatedAtUtc).IsRequired();
+        b.Property(s => s.UpdatedAtUtc).IsRequired();
+        b.HasIndex(s => new { s.RepositoryId, s.SourceType, s.SourceNumber, s.ContentHash }).IsUnique();
+        b.HasIndex(s => s.RepositoryId);
+    }
+}
+
+public sealed class SignalReviewConfiguration : IEntityTypeConfiguration<SignalReview>
+{
+    public void Configure(EntityTypeBuilder<SignalReview> b)
+    {
+        b.ToTable("signal_reviews");
+        b.HasKey(r => r.Id);
+        b.Property(r => r.Id).HasConversion(v => v.Value, v => Domain.Common.Id<SignalReview>.From(v));
+        b.Property(r => r.SignalId).HasConversion(v => v.Value, v => Domain.Common.Id<CommercialSignal>.From(v));
+        b.Property(r => r.RevisionNumber).IsRequired();
+        b.Property(r => r.Decision).HasConversion<int>();
+        b.Property(r => r.PriorCategory).HasConversion<int>();
+        b.Property(r => r.PriorStatus).HasConversion<int>();
+        b.Property(r => r.CorrectedCategory).HasConversion<int>();
+        b.Property(r => r.Reviewer).HasMaxLength(CommercialSignal.MaxReviewerLength).IsRequired();
+        b.Property(r => r.OccurredAtUtc).IsRequired();
+        b.Property(r => r.Note).HasMaxLength(SignalReview.MaxNoteLength);
+        b.HasIndex(r => new { r.SignalId, r.RevisionNumber }).IsUnique();
+        b.HasIndex(r => r.SignalId);
     }
 }

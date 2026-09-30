@@ -40,7 +40,7 @@ public sealed class GitHubProviderOptions
 /// on 401/403/404, and redacts diagnostic codes that would otherwise leak
 /// private repository identity to the UI.
 /// </summary>
-public sealed class GitHubRepositoryProvider : IGitHubRepositoryProvider
+public sealed class GitHubRepositoryProvider : IGitHubRepositoryProvider, ICommercialSourceProvider
 {
     public string ProviderVersion => "github-rest-1";
 
@@ -149,6 +149,17 @@ public sealed class GitHubRepositoryProvider : IGitHubRepositoryProvider
             null,
             "github-rest-not-implemented");
         return Task.FromResult(page);
+    }
+
+    public Task<IReadOnlyList<CommercialSourceInput>> ListSourcesAsync(
+        string ownerLogin, string name, CancellationToken cancellationToken)
+    {
+        // Read-only boundary: issue/PR text collection is not wired to the
+        // live REST API in this change, so the real provider yields no
+        // eligible sources and performs no writes. The fake provider serves
+        // fixtures for tests and demos.
+        _ = ownerLogin; _ = name; _ = cancellationToken;
+        return Task.FromResult<IReadOnlyList<CommercialSourceInput>>(Array.Empty<CommercialSourceInput>());
     }
 
     private static bool IsRateLimited(HttpResponseMessage response)

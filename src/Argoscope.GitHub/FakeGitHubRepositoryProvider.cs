@@ -1,4 +1,5 @@
 using Argoscope.Domain.Repositories;
+using Argoscope.Domain.Signals;
 using Argoscope.Domain.Snapshots;
 using Argoscope.GitHub;
 
@@ -9,7 +10,7 @@ namespace Argoscope.GitHub;
 /// records every call and returns the configured observations. No HTTP or
 /// external IO is performed.
 /// </summary>
-public sealed class FakeGitHubRepositoryProvider : IGitHubRepositoryProvider
+public sealed class FakeGitHubRepositoryProvider : IGitHubRepositoryProvider, ICommercialSourceProvider
 {
     public string ProviderVersion { get; }
 
@@ -34,11 +35,14 @@ public sealed class FakeGitHubRepositoryProvider : IGitHubRepositoryProvider
     private readonly Dictionary<(string, string), RepositoryFixture> _repos = new();
     private readonly Dictionary<(string, string, string, DateOnly), MetricFixture> _metrics = new();
     private readonly Dictionary<(string, string, DateOnly), EngagementFixture> _engagement = new();
+    private readonly Dictionary<(string, string, int, int), CommercialSourceInput> _sources = new();
     private readonly List<(string Owner, string Name, string Metric, string? Cursor)> _metricCalls = new();
     private readonly List<(string Owner, string Name, string? Cursor)> _engagementCalls = new();
     private readonly List<(string Owner, string Name)> _repositoryCalls = new();
+    private readonly List<(string Owner, string Name)> _sourceCalls = new();
 
     public IReadOnlyList<(string Owner, string Name)> RepositoryCalls => _repositoryCalls;
+    public IReadOnlyList<(string Owner, string Name)> SourceCalls => _sourceCalls;
     public IReadOnlyList<(string Owner, string Name, string Metric, string? Cursor)> MetricCalls => _metricCalls;
     public IReadOnlyList<(string Owner, string Name, string? Cursor)> EngagementCalls => _engagementCalls;
 
@@ -69,6 +73,29 @@ public sealed class FakeGitHubRepositoryProvider : IGitHubRepositoryProvider
     public void AddEngagement(EngagementFixture fixture)
     {
         _engagement[(fixture.OwnerLogin, fixture.Name, fixture.Date)] = fixture;
+    }
+
+    public void AddSource(CommercialSourceInput source, string ownerLogin, string name)
+    {
+        _sources[(ownerLogin, name, (int)source.SourceType, source.SourceNumber)] = source;
+    }
+
+    public void RemoveSource(string ownerLogin, string name, SignalSourceType sourceType, int sourceNumber)
+    {
+        _sources.Remove((ownerLogin, name, (int)sourceType, sourceNumber));
+    }
+
+    public Task<IReadOnlyList<CommercialSourceInput>> ListSourcesAsync(
+        string ownerLogin, string name, CancellationToken cancellationToken)
+    {
+        _sourceCalls.Add((ownerLogin, name));
+        var rows = _sources
+            .Where(kv => kv.Key.Item1 == ownerLogin && kv.Key.Item2 == name)
+            .Select(kv => kv.Value)
+            .OrderBy(s => s.SourceType)
+            .ThenBy(s => s.SourceNumber)
+            .ToList();
+        return Task.FromResult<IReadOnlyList<CommercialSourceInput>>(rows);
     }
 
     public Task<ProviderResult<RepositoryObservation>> GetRepositoryAsync(string ownerLogin, string name, CancellationToken cancellationToken)

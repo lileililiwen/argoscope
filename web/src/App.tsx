@@ -11,6 +11,7 @@ import { RepositoryMetricsPage } from './pages/RepositoryMetrics';
 import { PackageAdoptionPage } from './pages/PackageAdoption';
 import { Decisions } from './pages/Decisions';
 import { Alerts } from './pages/Alerts';
+import { Signals } from './pages/Signals';
 
 export default function App() {
   const [portfolios, setPortfolios] = useState<PortfolioDto[]>([]);
@@ -45,6 +46,7 @@ export default function App() {
               <NavLink to={`/portfolios/${selectedId}/repositories`} className={({ isActive }) => isActive ? 'active' : ''}>Repositories</NavLink>
               <NavLink to={`/portfolios/${selectedId}/decisions`} className={({ isActive }) => isActive ? 'active' : ''}>Decisions</NavLink>
               <NavLink to={`/portfolios/${selectedId}/alerts`} className={({ isActive }) => isActive ? 'active' : ''}>Alerts</NavLink>
+              <NavLink to={`/portfolios/${selectedId}/signals`} className={({ isActive }) => isActive ? 'active' : ''}>Signals</NavLink>
               <NavLink to={`/portfolios/${selectedId}/benchmarks`} className={({ isActive }) => isActive ? 'active' : ''}>Benchmarks</NavLink>
               <NavLink to={`/portfolios/${selectedId}/score`} className={({ isActive }) => isActive ? 'active' : ''}>Score</NavLink>
             </>
@@ -60,6 +62,7 @@ export default function App() {
         <Route path="/portfolios/:portfolioId/repositories" element={<PortfolioShell><Repositories /></PortfolioShell>} />
         <Route path="/portfolios/:portfolioId/decisions" element={<PortfolioShell><Decisions /></PortfolioShell>} />
         <Route path="/portfolios/:portfolioId/alerts" element={<PortfolioShell><Alerts /></PortfolioShell>} />
+        <Route path="/portfolios/:portfolioId/signals" element={<PortfolioShell><Signals /></PortfolioShell>} />
         <Route path="/portfolios/:portfolioId/benchmarks" element={<PortfolioShell><Benchmarks /></PortfolioShell>} />
         <Route path="/portfolios/:portfolioId/score" element={<PortfolioShell><ScoreConfiguration /></PortfolioShell>} />
         <Route path="/repositories/:repositoryId" element={<RepositoryMetricsPage />} />

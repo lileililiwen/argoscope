@@ -7,6 +7,7 @@ using Argoscope.Application.Decisions;
 using Argoscope.Application.Packages;
 using Argoscope.Application.Portfolios;
 using Argoscope.Application.Ranking;
+using Argoscope.Application.Signals;
 using Argoscope.Domain.Common;
 using Argoscope.Domain.Decisions;
 using Argoscope.Domain.Memberships;
@@ -99,6 +100,15 @@ public static class ArgoscopeApiModule
         v1.MapDelete("/portfolios/{portfolioId:guid}/alert-rules/{ruleId:guid}", (Guid portfolioId, Guid ruleId, [FromBody] AlertRuleRevisionRequest request, AlertService svc, CancellationToken ct) => DeleteAlertRuleAsync(portfolioId, ruleId, request, svc, ct));
         v1.MapPost("/portfolios/{portfolioId:guid}/alert-rules/{ruleId:guid}/evaluate", (Guid portfolioId, Guid ruleId, AlertService svc, CancellationToken ct) => EvaluateAlertRuleAsync(portfolioId, ruleId, svc, ct));
         v1.MapGet("/portfolios/{portfolioId:guid}/alerts", (Guid portfolioId, int? limit, AlertService svc, CancellationToken ct) => ListAlertsAsync(portfolioId, limit, svc, ct));
+
+        // Commercial signals: bounded issue/PR projections, advisory
+        // classification and owner review. Read-only toward GitHub; never
+        // alters scores, lifecycle state or labels.
+        v1.MapPost("/repositories/{repositoryId:guid}/commercial-signals/collect", (Guid repositoryId, CommercialSignalService svc, CancellationToken ct) => CollectSignalsAsync(repositoryId, svc, ct));
+        v1.MapGet("/repositories/{repositoryId:guid}/commercial-signals", (Guid repositoryId, string? state, CommercialSignalService svc, CancellationToken ct) => ListSignalsAsync(repositoryId, state, svc, ct));
+        v1.MapGet("/repositories/{repositoryId:guid}/commercial-signals/{signalId:guid}", (Guid repositoryId, Guid signalId, CommercialSignalService svc, CancellationToken ct) => GetSignalAsync(repositoryId, signalId, svc, ct));
+        v1.MapGet("/repositories/{repositoryId:guid}/commercial-signals/{signalId:guid}/reviews", (Guid repositoryId, Guid signalId, CommercialSignalService svc, CancellationToken ct) => GetSignalReviewsAsync(repositoryId, signalId, svc, ct));
+        v1.MapPatch("/repositories/{repositoryId:guid}/commercial-signals/{signalId:guid}/review", (Guid repositoryId, Guid signalId, ReviewSignalRequest request, CommercialSignalService svc, CancellationToken ct) => ReviewSignalAsync(repositoryId, signalId, request, svc, ct));
 
         return builder;
     }
@@ -765,6 +775,79 @@ public static class ArgoscopeApiModule
             Id<Portfolio>.From(portfolioId), limit ?? 50, ct).ConfigureAwait(false);
         return Results.Ok(list);
     }
+
+    private static async Task<IResult> CollectSignalsAsync(
+        Guid repositoryId,
+        CommercialSignalService svc,
+        CancellationToken ct)
+    {
+        var result = await svc.CollectAsync(
+            new CollectSignalsCommand(Id<Repository>.From(repositoryId), DateTimeOffset.UtcNow), ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return Problem(MapStatus(result.Error!.Value.Code), result.Error.Value.Code, result.Error.Value.Message);
+        }
+        return Results.Ok(result.Value);
+    }
+
+    private static async Task<IResult> ListSignalsAsync(
+        Guid repositoryId,
+        string? state,
+        CommercialSignalService svc,
+        CancellationToken ct)
+    {
+        var list = await svc.ListAsync(Id<Repository>.From(repositoryId), state, ct).ConfigureAwait(false);
+        return Results.Ok(list);
+    }
+
+    private static async Task<IResult> GetSignalAsync(
+        Guid repositoryId,
+        Guid signalId,
+        CommercialSignalService svc,
+        CancellationToken ct)
+    {
+        var dto = await svc.GetAsync(
+            Id<Repository>.From(repositoryId), Id<Domain.Signals.CommercialSignal>.From(signalId), ct).ConfigureAwait(false);
+        return dto is null ? Results.NotFound() : Results.Ok(dto);
+    }
+
+    private static async Task<IResult> GetSignalReviewsAsync(
+        Guid repositoryId,
+        Guid signalId,
+        CommercialSignalService svc,
+        CancellationToken ct)
+    {
+        var dto = await svc.GetAsync(
+            Id<Repository>.From(repositoryId), Id<Domain.Signals.CommercialSignal>.From(signalId), ct).ConfigureAwait(false);
+        if (dto is null) return Results.NotFound();
+        var reviews = await svc.GetReviewsAsync(
+            Id<Repository>.From(repositoryId), Id<Domain.Signals.CommercialSignal>.From(signalId), ct).ConfigureAwait(false);
+        return Results.Ok(reviews);
+    }
+
+    private static async Task<IResult> ReviewSignalAsync(
+        Guid repositoryId,
+        Guid signalId,
+        ReviewSignalRequest request,
+        CommercialSignalService svc,
+        CancellationToken ct)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.Decision))
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation", "Decision is required.");
+        }
+        var result = await svc.ReviewAsync(
+            new ReviewSignalCommand(
+                Id<Repository>.From(repositoryId), Id<Domain.Signals.CommercialSignal>.From(signalId),
+                request.ExpectedVersion, request.Decision, request.CorrectedCategory,
+                request.Note, request.Reviewer ?? "owner", DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return Problem(MapStatus(result.Error!.Value.Code), result.Error.Value.Code, result.Error.Value.Message);
+        }
+        return Results.Ok(result.Value);
+    }
 }
 
 public sealed record CreatePortfolioRequest(string Name);
@@ -848,3 +931,10 @@ public sealed record UpdateAlertRuleRequest(
     string? Secret);
 
 public sealed record AlertRuleRevisionRequest(int ExpectedVersion);
+
+public sealed record ReviewSignalRequest(
+    int ExpectedVersion,
+    string Decision,
+    string? CorrectedCategory,
+    string? Note,
+    string? Reviewer);

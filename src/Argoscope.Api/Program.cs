@@ -6,6 +6,7 @@ using Argoscope.Application.Decisions;
 using Argoscope.Application.Packages;
 using Argoscope.Application.Portfolios;
 using Argoscope.Application.Ranking;
+using Argoscope.Application.Signals;
 using Argoscope.Domain.Common;
 using Argoscope.Domain.Packages;
 using Argoscope.GitHub;
@@ -47,11 +48,18 @@ var ghToken = builder.Configuration["GitHub:Token"];
 if (!string.IsNullOrWhiteSpace(ghToken))
 {
     builder.Services.AddGitHubRepositoryProvider(ghToken);
+    builder.Services.AddHttpClient<ICommercialSourceProvider, GitHubRepositoryProvider>((sp, client) =>
+    {
+        var options = sp.GetRequiredService<IOptions<GitHubProviderOptions>>().Value;
+        client.BaseAddress = new Uri(options.BaseUrl);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
+    });
 }
 else
 {
     builder.Services.AddSingleton(new FakeGitHubRepositoryProvider());
     builder.Services.AddSingleton<IGitHubRepositoryProvider>(sp => sp.GetRequiredService<FakeGitHubRepositoryProvider>());
+    builder.Services.AddSingleton<ICommercialSourceProvider>(sp => sp.GetRequiredService<FakeGitHubRepositoryProvider>());
 }
 
 // Package providers: stub HTTP adapters by default. The screenshot
@@ -104,6 +112,9 @@ builder.Services.AddScoped<IDecisionEvidenceStore, EfDecisionEvidenceStore>();
 builder.Services.AddScoped<IAlertRuleStore, EfAlertRuleStore>();
 builder.Services.AddScoped<IAlertEvaluationStore, EfAlertEvaluationStore>();
 builder.Services.AddScoped<IDeliveryAttemptStore, EfDeliveryAttemptStore>();
+builder.Services.AddScoped<ICommercialSignalStore, EfCommercialSignalStore>();
+builder.Services.AddScoped<ISignalReviewStore, EfSignalReviewStore>();
+builder.Services.AddSingleton<ISignalClassifier, KeywordSignalClassifier>();
 builder.Services.AddHttpClient<HttpDeliverySender>();
 builder.Services.AddScoped<IDeliverySender>(sp =>
     sp.GetRequiredService<HttpDeliverySender>());
@@ -117,6 +128,7 @@ builder.Services.AddScoped<PackageAdoptionService>();
 builder.Services.AddScoped<PackageCollectionService>();
 builder.Services.AddScoped<DecisionService>();
 builder.Services.AddScoped<AlertService>();
+builder.Services.AddScoped<CommercialSignalService>();
 
 // Daily collection jobs (only when the real provider is configured).
 if (!string.IsNullOrWhiteSpace(ghToken))
