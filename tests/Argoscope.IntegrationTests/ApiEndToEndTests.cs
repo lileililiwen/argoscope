@@ -381,6 +381,100 @@ public class ApiEndToEndTests
         Assert.Equal("Snapshot", evidence.Kind);
         Assert.Equal("Unresolved", evidence.Resolution);
     }
+
+    [Fact]
+    public async Task AlertRules_CreateEvaluateHistory_MasksSecretsAndRejectsUnsafe()
+    {
+        using var client = _factory.CreateClient();
+
+        var portfolio = await (await client.PostAsJsonAsync("/api/v1/portfolios", new { name = "Alerts" }))
+            .Content.ReadFromJsonAsync<PortfolioDto>();
+        var member = await (await client.PostAsJsonAsync($"/api/v1/portfolios/{portfolio!.Id}/repositories", new
+        {
+            nodeId = "node-alert-1",
+            ownerLogin = "octo",
+            name = "alert-repo",
+            visibility = "Public",
+            role = "Owned",
+            lifecycle = "OpenSource",
+        })).Content.ReadFromJsonAsync<MembershipDto>();
+
+        // Unsafe webhook rejected without a request being sent.
+        var unsafeResp = await client.PostAsJsonAsync(
+            $"/api/v1/portfolios/{portfolio.Id}/alert-rules", new
+            {
+                repositoryId = member!.RepositoryId.ToString(),
+                name = "Unsafe",
+                metricKey = "stars_30d",
+                @operator = "GreaterThanOrEqual",
+                threshold = 5d,
+                minimumCoverage = 0.1d,
+                cooldownHours = 0,
+                enabled = true,
+                channel = "Webhook",
+                destination = "http://example.com/hook",
+                secret = "s3cret",
+            });
+        Assert.Equal(HttpStatusCode.BadRequest, unsafeResp.StatusCode);
+
+        // Email rule accepted; destination masked and secret hidden.
+        var createResp = await client.PostAsJsonAsync(
+            $"/api/v1/portfolios/{portfolio.Id}/alert-rules", new
+            {
+                repositoryId = member.RepositoryId.ToString(),
+                name = "Stale watch",
+                metricKey = "snapshot_staleness_hours",
+                @operator = "GreaterThanOrEqual",
+                threshold = 100000d,
+                minimumCoverage = 0d,
+                cooldownHours = 0,
+                enabled = true,
+                channel = "Email",
+                destination = "owner@example.com",
+            });
+        Assert.Equal(HttpStatusCode.Created, createResp.StatusCode);
+        var rule = await createResp.Content.ReadFromJsonAsync<AlertRuleDto>();
+        Assert.DoesNotContain("owner@example.com", (await createResp.Content.ReadAsStringAsync()).Replace("o***@example.com", string.Empty), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("o***@example.com", rule!.DestinationMasked);
+        Assert.False(rule.HasSecret);
+
+        // Rules list never exposes the raw destination either.
+        var listResp = await client.GetAsync($"/api/v1/portfolios/{portfolio.Id}/alert-rules");
+        Assert.Equal(HttpStatusCode.OK, listResp.StatusCode);
+        var rules = await listResp.Content.ReadFromJsonAsync<List<AlertRuleDto>>();
+        Assert.Single(rules!);
+
+        // Evaluate: no snapshots yet, so the run skips without delivery.
+        var evalResp = await client.PostAsync(
+            $"/api/v1/portfolios/{portfolio.Id}/alert-rules/{rule.RuleId}/evaluate", content: null);
+        Assert.Equal(HttpStatusCode.OK, evalResp.StatusCode);
+        var evaluation = await evalResp.Content.ReadFromJsonAsync<AlertEvaluationDto>();
+        Assert.Equal("SkippedInsufficientData", evaluation!.Status);
+        Assert.Empty(evaluation.Attempts);
+
+        // History endpoint surfaces the evaluation.
+        var historyResp = await client.GetAsync($"/api/v1/portfolios/{portfolio.Id}/alerts?limit=10");
+        Assert.Equal(HttpStatusCode.OK, historyResp.StatusCode);
+        var history = await historyResp.Content.ReadFromJsonAsync<List<AlertEvaluationDto>>();
+        Assert.Single(history!);
+
+        // Stale update conflicts.
+        var conflictResp = await client.PutAsJsonAsync(
+            $"/api/v1/portfolios/{portfolio.Id}/alert-rules/{rule.RuleId}", new
+            {
+                expectedVersion = rule.Version + 99,
+                name = "Stale watch",
+                metricKey = "snapshot_staleness_hours",
+                @operator = "GreaterThanOrEqual",
+                threshold = 1d,
+                minimumCoverage = 0d,
+                cooldownHours = 0,
+                enabled = true,
+                channel = "Email",
+                destination = "owner@example.com",
+            });
+        Assert.Equal(HttpStatusCode.Conflict, conflictResp.StatusCode);
+    }
 }
 
 public sealed record OverviewEnvelope(Guid PortfolioId, string Window, DateOnly WindowStart, DateOnly WindowEnd, DateTimeOffset AsOfUtc, List<OverviewRowDto> Rows);
@@ -484,3 +578,46 @@ public sealed record DecisionRevisionRequestBody
     public int ExpectedRevision { get; init; }
     public string? Note { get; init; }
 }
+
+public sealed record AlertRuleDto(
+    Guid RuleId,
+    Guid PortfolioId,
+    Guid? RepositoryId,
+    string Name,
+    string MetricKey,
+    string Operator,
+    double Threshold,
+    double MinimumCoverage,
+    int CooldownHours,
+    bool Enabled,
+    string Channel,
+    string DestinationMasked,
+    bool HasSecret,
+    int Version,
+    DateTimeOffset? DeletedAtUtc,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
+
+public sealed record AlertEvaluationDto(
+    Guid EvaluationId,
+    Guid RuleId,
+    string RuleName,
+    Guid PortfolioId,
+    Guid? RepositoryId,
+    string MetricKey,
+    DateTimeOffset MetricWindowEndUtc,
+    double? MetricValue,
+    double Coverage,
+    string Status,
+    string? Reason,
+    DateTimeOffset EvaluatedAtUtc,
+    List<AlertAttemptDto> Attempts);
+
+public sealed record AlertAttemptDto(
+    Guid AttemptId,
+    int AttemptNumber,
+    string State,
+    int? ResponseCode,
+    string? Error,
+    DateTimeOffset? NextRetryAtUtc,
+    DateTimeOffset CreatedAtUtc);

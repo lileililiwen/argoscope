@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Argoscope.Application.Alerts;
 using Argoscope.Application.Analytics;
 using Argoscope.Application.Collection;
 using Argoscope.Application.Decisions;
@@ -88,6 +89,16 @@ public static class ArgoscopeApiModule
         v1.MapDelete("/portfolios/{portfolioId:guid}/decisions/{decisionId:guid}", (Guid portfolioId, Guid decisionId, [FromBody] DecisionRevisionRequest request, DecisionService svc, CancellationToken ct) => DeleteDecisionAsync(portfolioId, decisionId, request, svc, ct));
         v1.MapPost("/portfolios/{portfolioId:guid}/decisions/{decisionId:guid}/restore", (Guid portfolioId, Guid decisionId, [FromBody] DecisionRevisionRequest request, DecisionService svc, CancellationToken ct) => RestoreDecisionAsync(portfolioId, decisionId, request, svc, ct));
         v1.MapGet("/portfolios/{portfolioId:guid}/decisions/{decisionId:guid}/revisions", (Guid portfolioId, Guid decisionId, DecisionService svc, CancellationToken ct) => GetDecisionRevisionsAsync(portfolioId, decisionId, svc, ct));
+
+        // Portfolio attention alerts: validated rules over the
+        // allowlisted metric set, deduplicated evaluation and
+        // observable delivery history. Secrets are write-only.
+        v1.MapPost("/portfolios/{portfolioId:guid}/alert-rules", (Guid portfolioId, CreateAlertRuleRequest request, AlertService svc, CancellationToken ct) => CreateAlertRuleAsync(portfolioId, request, svc, ct));
+        v1.MapGet("/portfolios/{portfolioId:guid}/alert-rules", (Guid portfolioId, AlertService svc, CancellationToken ct) => ListAlertRulesAsync(portfolioId, svc, ct));
+        v1.MapPut("/portfolios/{portfolioId:guid}/alert-rules/{ruleId:guid}", (Guid portfolioId, Guid ruleId, UpdateAlertRuleRequest request, AlertService svc, CancellationToken ct) => UpdateAlertRuleAsync(portfolioId, ruleId, request, svc, ct));
+        v1.MapDelete("/portfolios/{portfolioId:guid}/alert-rules/{ruleId:guid}", (Guid portfolioId, Guid ruleId, [FromBody] AlertRuleRevisionRequest request, AlertService svc, CancellationToken ct) => DeleteAlertRuleAsync(portfolioId, ruleId, request, svc, ct));
+        v1.MapPost("/portfolios/{portfolioId:guid}/alert-rules/{ruleId:guid}/evaluate", (Guid portfolioId, Guid ruleId, AlertService svc, CancellationToken ct) => EvaluateAlertRuleAsync(portfolioId, ruleId, svc, ct));
+        v1.MapGet("/portfolios/{portfolioId:guid}/alerts", (Guid portfolioId, int? limit, AlertService svc, CancellationToken ct) => ListAlertsAsync(portfolioId, limit, svc, ct));
 
         return builder;
     }
@@ -633,6 +644,127 @@ public static class ArgoscopeApiModule
         "forbidden" => StatusCodes.Status403Forbidden,
         _ => StatusCodes.Status400BadRequest,
     };
+
+    private static async Task<IResult> CreateAlertRuleAsync(
+        Guid portfolioId,
+        CreateAlertRuleRequest request,
+        AlertService svc,
+        CancellationToken ct)
+    {
+        if (request is null
+            || string.IsNullOrWhiteSpace(request.Name)
+            || string.IsNullOrWhiteSpace(request.MetricKey)
+            || string.IsNullOrWhiteSpace(request.Operator)
+            || string.IsNullOrWhiteSpace(request.Channel)
+            || string.IsNullOrWhiteSpace(request.Destination))
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation", "Name, MetricKey, Operator, Channel and Destination are required.");
+        }
+        Id<Repository>? repositoryId = null;
+        if (!string.IsNullOrWhiteSpace(request.RepositoryId))
+        {
+            if (!Guid.TryParse(request.RepositoryId, out var parsedRepo))
+            {
+                return Problem(StatusCodes.Status400BadRequest, "validation", "RepositoryId must be a GUID when provided.");
+            }
+            repositoryId = Id<Repository>.From(parsedRepo);
+        }
+        var result = await svc.CreateAsync(
+            new CreateAlertRuleCommand(
+                Id<Portfolio>.From(portfolioId), repositoryId, request.Name, request.MetricKey,
+                request.Operator, request.Threshold, request.MinimumCoverage, request.CooldownHours,
+                request.Enabled, request.Channel, request.Destination, request.Secret, DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return Problem(MapStatus(result.Error!.Value.Code), result.Error.Value.Code, result.Error.Value.Message);
+        }
+        return Results.Created($"/api/v1/portfolios/{portfolioId}/alert-rules/{result.Value.RuleId}", result.Value);
+    }
+
+    private static async Task<IResult> ListAlertRulesAsync(Guid portfolioId, AlertService svc, CancellationToken ct)
+    {
+        var list = await svc.ListRulesAsync(Id<Portfolio>.From(portfolioId), ct).ConfigureAwait(false);
+        return Results.Ok(list);
+    }
+
+    private static async Task<IResult> UpdateAlertRuleAsync(
+        Guid portfolioId,
+        Guid ruleId,
+        UpdateAlertRuleRequest request,
+        AlertService svc,
+        CancellationToken ct)
+    {
+        if (request is null
+            || string.IsNullOrWhiteSpace(request.Name)
+            || string.IsNullOrWhiteSpace(request.MetricKey)
+            || string.IsNullOrWhiteSpace(request.Operator)
+            || string.IsNullOrWhiteSpace(request.Channel)
+            || string.IsNullOrWhiteSpace(request.Destination))
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation", "Name, MetricKey, Operator, Channel and Destination are required.");
+        }
+        var result = await svc.UpdateAsync(
+            new UpdateAlertRuleCommand(
+                Id<Portfolio>.From(portfolioId), Id<Domain.Alerts.AlertRule>.From(ruleId),
+                request.ExpectedVersion, request.Name, request.MetricKey, request.Operator,
+                request.Threshold, request.MinimumCoverage, request.CooldownHours, request.Enabled,
+                request.Channel, request.Destination, request.Secret, DateTimeOffset.UtcNow),
+            ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return Problem(MapStatus(result.Error!.Value.Code), result.Error.Value.Code, result.Error.Value.Message);
+        }
+        return Results.Ok(result.Value);
+    }
+
+    private static async Task<IResult> DeleteAlertRuleAsync(
+        Guid portfolioId,
+        Guid ruleId,
+        [FromBody] AlertRuleRevisionRequest request,
+        AlertService svc,
+        CancellationToken ct)
+    {
+        if (request is null)
+        {
+            return Problem(StatusCodes.Status400BadRequest, "validation", "expectedVersion is required.");
+        }
+        var result = await svc.DeleteAsync(
+            Id<Portfolio>.From(portfolioId), Id<Domain.Alerts.AlertRule>.From(ruleId),
+            request.ExpectedVersion, DateTimeOffset.UtcNow, ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return Problem(MapStatus(result.Error!.Value.Code), result.Error.Value.Code, result.Error.Value.Message);
+        }
+        return Results.Ok(result.Value);
+    }
+
+    private static async Task<IResult> EvaluateAlertRuleAsync(
+        Guid portfolioId,
+        Guid ruleId,
+        AlertService svc,
+        CancellationToken ct)
+    {
+        var result = await svc.EvaluateAsync(
+            Id<Portfolio>.From(portfolioId), Id<Domain.Alerts.AlertRule>.From(ruleId),
+            DateTimeOffset.UtcNow, ct).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return Problem(MapStatus(result.Error!.Value.Code), result.Error.Value.Code, result.Error.Value.Message);
+        }
+        return Results.Ok(result.Value);
+    }
+
+    private static async Task<IResult> ListAlertsAsync(
+        Guid portfolioId,
+        int? limit,
+        AlertService svc,
+        CancellationToken ct)
+    {
+        var list = await svc.ListEvaluationsAsync(
+            Id<Portfolio>.From(portfolioId), limit ?? 50, ct).ConfigureAwait(false);
+        return Results.Ok(list);
+    }
 }
 
 public sealed record CreatePortfolioRequest(string Name);
@@ -688,3 +820,31 @@ public sealed record DecisionRevisionRequest(
     int ExpectedRevision,
     string? Note,
     string? ActorId);
+
+public sealed record CreateAlertRuleRequest(
+    string? RepositoryId,
+    string Name,
+    string MetricKey,
+    string Operator,
+    double Threshold,
+    double MinimumCoverage,
+    int CooldownHours,
+    bool Enabled,
+    string Channel,
+    string Destination,
+    string? Secret);
+
+public sealed record UpdateAlertRuleRequest(
+    int ExpectedVersion,
+    string Name,
+    string MetricKey,
+    string Operator,
+    double Threshold,
+    double MinimumCoverage,
+    int CooldownHours,
+    bool Enabled,
+    string Channel,
+    string Destination,
+    string? Secret);
+
+public sealed record AlertRuleRevisionRequest(int ExpectedVersion);

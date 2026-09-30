@@ -1,4 +1,6 @@
 import type {
+  AlertEvaluationDto,
+  AlertRuleDto,
   BenchmarkReport,
   CollectionRunResult,
   DecisionEntryDto,
@@ -133,4 +135,38 @@ export const api = {
     requestWithBody<DecisionEntryDto>('DELETE', `/portfolios/${portfolioId}/decisions/${decisionId}`, { expectedRevision, note }),
   restoreDecision: (portfolioId: string, decisionId: string, expectedRevision: number, note?: string | null) =>
     request<DecisionEntryDto>('POST', `/portfolios/${portfolioId}/decisions/${decisionId}/restore`, { expectedRevision, note }),
+  listAlertRules: (portfolioId: string) =>
+    request<AlertRuleDto[]>('GET', `/portfolios/${portfolioId}/alert-rules`),
+  createAlertRule: (portfolioId: string, body: {
+    repositoryId?: string | null;
+    name: string;
+    metricKey: string;
+    operator: string;
+    threshold: number;
+    minimumCoverage: number;
+    cooldownHours: number;
+    enabled: boolean;
+    channel: string;
+    destination: string;
+    secret?: string | null;
+  }) => request<AlertRuleDto>('POST', `/portfolios/${portfolioId}/alert-rules`, body),
+  updateAlertRule: (portfolioId: string, ruleId: string, body: {
+    expectedVersion: number;
+    name: string;
+    metricKey: string;
+    operator: string;
+    threshold: number;
+    minimumCoverage: number;
+    cooldownHours: number;
+    enabled: boolean;
+    channel: string;
+    destination: string;
+    secret?: string | null;
+  }) => request<AlertRuleDto>('PUT', `/portfolios/${portfolioId}/alert-rules/${ruleId}`, body),
+  deleteAlertRule: (portfolioId: string, ruleId: string, expectedVersion: number) =>
+    requestWithBody<AlertRuleDto>('DELETE', `/portfolios/${portfolioId}/alert-rules/${ruleId}`, { expectedVersion }),
+  evaluateAlertRule: (portfolioId: string, ruleId: string) =>
+    request<AlertEvaluationDto>('POST', `/portfolios/${portfolioId}/alert-rules/${ruleId}/evaluate`),
+  listAlerts: (portfolioId: string, limit = 50) =>
+    request<AlertEvaluationDto[]>('GET', `/portfolios/${portfolioId}/alerts?limit=${limit}`),
 };

@@ -1,4 +1,5 @@
 using Argoscope.Api;
+using Argoscope.Application.Alerts;
 using Argoscope.Application.Analytics;
 using Argoscope.Application.Collection;
 using Argoscope.Application.Decisions;
@@ -8,6 +9,7 @@ using Argoscope.Application.Ranking;
 using Argoscope.Domain.Common;
 using Argoscope.Domain.Packages;
 using Argoscope.GitHub;
+using Argoscope.Infrastructure.Alerts;
 using Argoscope.Infrastructure.Persistence;
 using Argoscope.Infrastructure.Scheduling;
 using Argoscope.Packages;
@@ -99,6 +101,12 @@ builder.Services.AddScoped<IPackageObservationStore, EfPackageObservationStore>(
 builder.Services.AddScoped<IDecisionEntryStore, EfDecisionEntryStore>();
 builder.Services.AddScoped<IDecisionRevisionStore, EfDecisionRevisionStore>();
 builder.Services.AddScoped<IDecisionEvidenceStore, EfDecisionEvidenceStore>();
+builder.Services.AddScoped<IAlertRuleStore, EfAlertRuleStore>();
+builder.Services.AddScoped<IAlertEvaluationStore, EfAlertEvaluationStore>();
+builder.Services.AddScoped<IDeliveryAttemptStore, EfDeliveryAttemptStore>();
+builder.Services.AddHttpClient<HttpDeliverySender>();
+builder.Services.AddScoped<IDeliverySender>(sp =>
+    sp.GetRequiredService<HttpDeliverySender>());
 builder.Services.AddScoped<DecisionEvidenceResolver>();
 builder.Services.AddScoped<CollectionService>();
 builder.Services.AddScoped<AnalyticsService>();
@@ -108,6 +116,7 @@ builder.Services.AddScoped<PackageAssociationService>();
 builder.Services.AddScoped<PackageAdoptionService>();
 builder.Services.AddScoped<PackageCollectionService>();
 builder.Services.AddScoped<DecisionService>();
+builder.Services.AddScoped<AlertService>();
 
 // Daily collection jobs (only when the real provider is configured).
 if (!string.IsNullOrWhiteSpace(ghToken))

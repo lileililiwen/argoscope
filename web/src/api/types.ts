@@ -276,3 +276,58 @@ export interface DecisionRevisionDto {
   note: string | null;
   evidence: DecisionEvidenceDto[];
 }
+
+export type AlertOperator = 'GreaterThan' | 'GreaterThanOrEqual' | 'LessThan' | 'LessThanOrEqual';
+export type AlertChannel = 'Email' | 'Webhook';
+export type AlertMetricKey =
+  | 'stars_7d'
+  | 'stars_30d'
+  | 'external_engagement_30d'
+  | 'momentum_score'
+  | 'snapshot_staleness_hours';
+
+export interface AlertRuleDto {
+  ruleId: string;
+  portfolioId: string;
+  repositoryId: string | null;
+  name: string;
+  metricKey: AlertMetricKey;
+  operator: AlertOperator;
+  threshold: number;
+  minimumCoverage: number;
+  cooldownHours: number;
+  enabled: boolean;
+  channel: AlertChannel;
+  destinationMasked: string;
+  hasSecret: boolean;
+  version: number;
+  deletedAtUtc: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface DeliveryAttemptDto {
+  attemptId: string;
+  attemptNumber: number;
+  state: string;
+  responseCode: number | null;
+  error: string | null;
+  nextRetryAtUtc: string | null;
+  createdAtUtc: string;
+}
+
+export interface AlertEvaluationDto {
+  evaluationId: string;
+  ruleId: string;
+  ruleName: string;
+  portfolioId: string;
+  repositoryId: string | null;
+  metricKey: AlertMetricKey;
+  metricWindowEndUtc: string;
+  metricValue: number | null;
+  coverage: number;
+  status: string;
+  reason: string | null;
+  evaluatedAtUtc: string;
+  attempts: DeliveryAttemptDto[];
+}

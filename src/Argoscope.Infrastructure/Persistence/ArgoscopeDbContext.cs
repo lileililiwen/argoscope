@@ -1,3 +1,4 @@
+using Argoscope.Domain.Alerts;
 using Argoscope.Domain.Decisions;
 using Argoscope.Domain.Engagement;
 using Argoscope.Domain.Memberships;
@@ -27,6 +28,9 @@ public sealed class ArgoscopeDbContext : DbContext
     public DbSet<DecisionEntry> DecisionEntries => Set<DecisionEntry>();
     public DbSet<DecisionRevision> DecisionRevisions => Set<DecisionRevision>();
     public DbSet<DecisionEvidenceReference> DecisionEvidenceReferences => Set<DecisionEvidenceReference>();
+    public DbSet<AlertRule> AlertRules => Set<AlertRule>();
+    public DbSet<AlertEvaluation> AlertEvaluations => Set<AlertEvaluation>();
+    public DbSet<DeliveryAttempt> DeliveryAttempts => Set<DeliveryAttempt>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -42,6 +46,9 @@ public sealed class ArgoscopeDbContext : DbContext
         modelBuilder.ApplyConfiguration(new DecisionEntryConfiguration());
         modelBuilder.ApplyConfiguration(new DecisionRevisionConfiguration());
         modelBuilder.ApplyConfiguration(new DecisionEvidenceReferenceConfiguration());
+        modelBuilder.ApplyConfiguration(new AlertRuleConfiguration());
+        modelBuilder.ApplyConfiguration(new AlertEvaluationConfiguration());
+        modelBuilder.ApplyConfiguration(new DeliveryAttemptConfiguration());
     }
 }
 
@@ -290,5 +297,75 @@ public sealed class DecisionEvidenceReferenceConfiguration : IEntityTypeConfigur
         b.Property(e => e.Label).HasMaxLength(DecisionEvidenceReference.MaxLabelLength);
         b.HasIndex(e => new { e.DecisionRevisionId, e.ReferenceId, e.Kind }).IsUnique();
         b.HasIndex(e => e.DecisionRevisionId);
+    }
+}
+
+public sealed class AlertRuleConfiguration : IEntityTypeConfiguration<AlertRule>
+{
+    public void Configure(EntityTypeBuilder<AlertRule> b)
+    {
+        b.ToTable("alert_rules");
+        b.HasKey(r => r.Id);
+        b.Property(r => r.Id).HasConversion(v => v.Value, v => Domain.Common.Id<AlertRule>.From(v));
+        b.Property(r => r.PortfolioId).HasConversion(v => v.Value, v => Domain.Common.Id<Domain.Portfolios.Portfolio>.From(v));
+        b.Property(r => r.RepositoryId).HasConversion(v => v.HasValue ? v.Value.Value : (Guid?)null, v => v.HasValue ? Domain.Common.Id<Domain.Repositories.Repository>.From(v.Value) : (Domain.Common.Id<Domain.Repositories.Repository>?)null);
+        b.Property(r => r.Name).HasMaxLength(AlertRule.MaxNameLength).IsRequired();
+        b.Property(r => r.MetricKey).HasMaxLength(50).IsRequired();
+        b.Property(r => r.Operator).HasConversion<int>();
+        b.Property(r => r.Threshold).IsRequired();
+        b.Property(r => r.MinimumCoverage).IsRequired();
+        b.Property(r => r.CooldownHours).IsRequired();
+        b.Property(r => r.Enabled).IsRequired();
+        b.Property(r => r.Channel).HasConversion<int>();
+        b.Property(r => r.Destination).HasMaxLength(AlertRule.MaxDestinationLength).IsRequired();
+        b.Property(r => r.Secret).HasMaxLength(AlertRule.MaxSecretLength).IsRequired();
+        b.Property(r => r.Version).IsRequired();
+        b.Property(r => r.DeletedAtUtc);
+        b.Property(r => r.CreatedAtUtc).IsRequired();
+        b.Property(r => r.UpdatedAtUtc).IsRequired();
+        b.HasIndex(r => r.PortfolioId);
+    }
+}
+
+public sealed class AlertEvaluationConfiguration : IEntityTypeConfiguration<AlertEvaluation>
+{
+    public void Configure(EntityTypeBuilder<AlertEvaluation> b)
+    {
+        b.ToTable("alert_evaluations");
+        b.HasKey(e => e.Id);
+        b.Property(e => e.Id).HasConversion(v => v.Value, v => Domain.Common.Id<AlertEvaluation>.From(v));
+        b.Property(e => e.RuleId).HasConversion(v => v.Value, v => Domain.Common.Id<AlertRule>.From(v));
+        b.Property(e => e.PortfolioId).HasConversion(v => v.Value, v => Domain.Common.Id<Domain.Portfolios.Portfolio>.From(v));
+        b.Property(e => e.RepositoryId).HasConversion(v => v.HasValue ? v.Value.Value : (Guid?)null, v => v.HasValue ? Domain.Common.Id<Domain.Repositories.Repository>.From(v.Value) : (Domain.Common.Id<Domain.Repositories.Repository>?)null);
+        b.Property(e => e.MetricKey).HasMaxLength(50).IsRequired();
+        b.Property(e => e.MetricWindowEndUtc).IsRequired();
+        b.Property(e => e.MetricValue);
+        b.Property(e => e.Coverage).IsRequired();
+        b.Property(e => e.Status).HasConversion<int>();
+        b.Property(e => e.Reason).HasMaxLength(200);
+        b.Property(e => e.EvaluatedAtUtc).IsRequired();
+        b.HasIndex(e => new { e.RuleId, e.MetricWindowEndUtc }).IsUnique();
+        b.HasIndex(e => e.PortfolioId);
+        b.HasIndex(e => e.RuleId);
+    }
+}
+
+public sealed class DeliveryAttemptConfiguration : IEntityTypeConfiguration<DeliveryAttempt>
+{
+    public void Configure(EntityTypeBuilder<DeliveryAttempt> b)
+    {
+        b.ToTable("delivery_attempts");
+        b.HasKey(a => a.Id);
+        b.Property(a => a.Id).HasConversion(v => v.Value, v => Domain.Common.Id<DeliveryAttempt>.From(v));
+        b.Property(a => a.EvaluationId).HasConversion(v => v.Value, v => Domain.Common.Id<AlertEvaluation>.From(v));
+        b.Property(a => a.AttemptNumber).IsRequired();
+        b.Property(a => a.State).HasConversion<int>();
+        b.Property(a => a.ResponseCode);
+        b.Property(a => a.Error).HasMaxLength(500);
+        b.Property(a => a.NextRetryAtUtc);
+        b.Property(a => a.CreatedAtUtc).IsRequired();
+        b.Property(a => a.UpdatedAtUtc).IsRequired();
+        b.HasIndex(a => new { a.EvaluationId, a.AttemptNumber }).IsUnique();
+        b.HasIndex(a => a.EvaluationId);
     }
 }
