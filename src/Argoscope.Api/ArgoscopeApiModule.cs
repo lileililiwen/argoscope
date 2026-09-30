@@ -659,6 +659,7 @@ public static class ArgoscopeApiModule
         "conflict" => StatusCodes.Status409Conflict,
         "unauthorized" => StatusCodes.Status401Unauthorized,
         "forbidden" => StatusCodes.Status403Forbidden,
+        "payment_required" => StatusCodes.Status402PaymentRequired,
         _ => StatusCodes.Status400BadRequest,
     };
 

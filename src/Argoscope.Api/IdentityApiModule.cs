@@ -1,3 +1,4 @@
+using Argoscope.Application.Billing;
 using Argoscope.Application.Identity;
 using Argoscope.Domain.Common;
 using Argoscope.Domain.Identity;
@@ -79,6 +80,7 @@ public static class TenantHttp
         "conflict" => StatusCodes.Status409Conflict,
         "unauthorized" => StatusCodes.Status401Unauthorized,
         "forbidden" => StatusCodes.Status403Forbidden,
+        "payment_required" => StatusCodes.Status402PaymentRequired,
         "unavailable" => StatusCodes.Status503ServiceUnavailable,
         _ => StatusCodes.Status400BadRequest,
     };
@@ -170,6 +172,13 @@ public sealed class TenantAuthorizationFilter : IEndpointFilter
                 return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "forbidden", detail: "Viewer cannot mutate portfolio data.");
             }
 
+            var billingDenial = await CheckBillingAsync(
+                http, portfolios, principal, needsWrite, now, http.RequestAborted).ConfigureAwait(false);
+            if (billingDenial is not null)
+            {
+                return billingDenial;
+            }
+
             return await next(context).ConfigureAwait(false);
         }
 
@@ -215,10 +224,97 @@ public sealed class TenantAuthorizationFilter : IEndpointFilter
                 return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "forbidden", detail: "Viewer cannot mutate portfolio data.");
             }
 
+            var billingDenial = await CheckBillingAsync(
+                http, portfolios, principal, needsWrite, now, http.RequestAborted).ConfigureAwait(false);
+            if (billingDenial is not null)
+            {
+                return billingDenial;
+            }
+
             return await next(context).ConfigureAwait(false);
         }
 
+        if (needsWrite)
+        {
+            var fallthroughDenial = await CheckBillingAsync(
+                http, portfolios, principal, needsWrite, now, http.RequestAborted).ConfigureAwait(false);
+            if (fallthroughDenial is not null)
+            {
+                return fallthroughDenial;
+            }
+        }
+
         return await next(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Entitlement enforcement for hosted mutations. Runs after tenant
+    /// ownership and role checks so 401/404/409/403 semantics are unchanged:
+    /// read-only accounts get a 402-shaped denial with a stable code and
+    /// upgrade URL, and portfolio creation is bounded by the plan limit. A
+    /// tenant without a subscription row is unconfigured billing and is
+    /// allowed through.
+    /// </summary>
+    private static async Task<IResult?> CheckBillingAsync(
+        HttpContext http,
+        Application.Collection.IPortfolioRepository portfolios,
+        TenantPrincipal principal,
+        bool needsWrite,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (!needsWrite) return null;
+
+        var billing = http.RequestServices.GetRequiredService<BillingService>();
+        if (!billing.BillingEnforced) return null;
+
+        var (version, entitlements) = await billing.GetEntitlementsAsync(
+            principal.TenantId, now, cancellationToken).ConfigureAwait(false);
+        if (entitlements is null) return null;
+
+        var billingOptions = http.RequestServices.GetRequiredService<IOptions<BillingOptions>>().Value;
+        if (!entitlements.CanMutate)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status402PaymentRequired,
+                title: "payment_required",
+                detail: entitlements.ReadOnlyReason ?? "Subscription is not active.",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "billing_read_only",
+                    ["upgradeUrl"] = billingOptions.UpgradeUrl,
+                });
+        }
+
+        if (HttpMethods.IsPost(http.Request.Method)
+            && http.Request.Path.Value?.EndsWith("/portfolios", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            var count = 0;
+            var portfolioIds = await portfolios.ListAllAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var pid in portfolioIds)
+            {
+                var portfolio = await portfolios.FindAsync(pid, cancellationToken).ConfigureAwait(false);
+                if (portfolio?.TenantId == principal.TenantId)
+                {
+                    count++;
+                }
+            }
+
+            if (count >= entitlements.MaxPortfolios)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status402PaymentRequired,
+                    title: "payment_required",
+                    detail: $"Plan '{entitlements.PlanId}' allows {entitlements.MaxPortfolios} portfolios.",
+                    extensions: new Dictionary<string, object?>
+                    {
+                        ["code"] = "billing_limit_exceeded",
+                        ["upgradeUrl"] = billingOptions.UpgradeUrl,
+                    });
+            }
+        }
+
+        return null;
     }
 }
 
@@ -229,7 +325,7 @@ public static class IdentityApiModule
     {
         var v1 = builder.MapGroup("/api/v1").WithGroupName("argoscope-identity");
 
-        v1.MapPost("/tenants", (CreateTenantRequest request, HttpContext http, TenantService svc, ISessionStore sessions, IOptions<IdentityOptions> opts, CancellationToken ct) => CreateTenantAsync(request, http, svc, sessions, opts.Value, ct));
+        v1.MapPost("/tenants", (CreateTenantRequest request, HttpContext http, TenantService svc, BillingService billing, ISessionStore sessions, IOptions<IdentityOptions> opts, CancellationToken ct) => CreateTenantAsync(request, http, svc, billing, sessions, opts.Value, ct));
         v1.MapGet("/tenants/{tenantId:guid}", (Guid tenantId, HttpContext http, TenantService svc, ISessionStore sessions, IOptions<IdentityOptions> opts, CancellationToken ct) => GetTenantAsync(tenantId, http, svc, sessions, opts.Value, ct));
         v1.MapGet("/tenants/{tenantId:guid}/members", (Guid tenantId, HttpContext http, TenantService svc, ISessionStore sessions, IOptions<IdentityOptions> opts, CancellationToken ct) => ListMembersAsync(tenantId, http, svc, sessions, opts.Value, ct));
         v1.MapPost("/tenants/{tenantId:guid}/invites", (Guid tenantId, InviteMemberRequest request, HttpContext http, TenantService svc, ISessionStore sessions, IOptions<IdentityOptions> opts, CancellationToken ct) => InviteAsync(tenantId, request, http, svc, sessions, opts.Value, ct));
@@ -268,7 +364,7 @@ public static class IdentityApiModule
     }
 
     private static async Task<IResult> CreateTenantAsync(
-        CreateTenantRequest request, HttpContext http, TenantService svc,
+        CreateTenantRequest request, HttpContext http, TenantService svc, BillingService billing,
         ISessionStore sessions, IdentityOptions options, CancellationToken ct)
     {
         if (request is null || string.IsNullOrWhiteSpace(request.Name))
@@ -287,6 +383,15 @@ public static class IdentityApiModule
         if (!result.IsSuccess)
         {
             return Results.Problem(statusCode: TenantHttp.MapStatus(result.Error!.Value.Code), title: result.Error.Value.Code, detail: result.Error.Value.Message);
+        }
+
+        // New hosted tenants are explicitly provisioned on the configured
+        // trial plan so entitlement state is visible from creation. There is
+        // no hidden default: without a configured trial plan nothing is
+        // provisioned. SingleOwner keeps legacy behavior (no billing rows).
+        if (options.IsHosted)
+        {
+            await billing.EnsureTrialAsync(Id<Tenant>.From(result.Value.Tenant.TenantId), now, ct).ConfigureAwait(false);
         }
 
         var session = await sessions.IssueAsync(

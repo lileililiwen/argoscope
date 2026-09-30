@@ -1,6 +1,7 @@
 using Argoscope.Api;
 using Argoscope.Application.Alerts;
 using Argoscope.Application.Analytics;
+using Argoscope.Application.Billing;
 using Argoscope.Application.Collection;
 using Argoscope.Application.Decisions;
 using Argoscope.Application.Identity;
@@ -31,6 +32,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.Configure<GitHubProviderOptions>(builder.Configuration.GetSection("GitHub"));
 builder.Services.Configure<IdentityOptions>(builder.Configuration.GetSection(IdentityOptions.SectionName));
+builder.Services.Configure<BillingOptions>(builder.Configuration.GetSection(BillingOptions.SectionName));
 builder.Services.Configure<DailyCollectionOptions>(builder.Configuration.GetSection("Argoscope:Collection"));
 builder.Services.Configure<PackageCollectionOptions>(builder.Configuration.GetSection("Argoscope:Packages"));
 
@@ -119,6 +121,8 @@ builder.Services.AddScoped<ISignalReviewStore, EfSignalReviewStore>();
 builder.Services.AddScoped<ITenantStore, EfTenantStore>();
 builder.Services.AddScoped<ITenantMembershipStore, EfTenantMembershipStore>();
 builder.Services.AddScoped<IPortfolioTenantStore, EfPortfolioTenantStore>();
+builder.Services.AddScoped<IBillingStore, EfBillingStore>();
+builder.Services.AddSingleton<IEntitlementCache, InMemoryEntitlementCache>();
 builder.Services.AddSingleton<OidcTokenValidator>();
 builder.Services.AddSingleton<ISessionStore>(sp =>
 {
@@ -145,6 +149,7 @@ builder.Services.AddScoped<AlertService>();
 builder.Services.AddScoped<CommercialSignalService>();
 builder.Services.AddScoped<TenantService>();
 builder.Services.AddScoped<TenantMigrationService>();
+builder.Services.AddScoped<BillingService>();
 
 // Daily collection jobs (only when the real provider is configured).
 if (!string.IsNullOrWhiteSpace(ghToken))
@@ -198,6 +203,7 @@ app.MapFallback(async ctx =>
 });
 app.MapArgoscopeApi();
 app.MapIdentityApi();
+app.MapBillingApi();
 app.MapGet("/api/v1/health", () => Results.Ok(new { status = "ok", time = DateTimeOffset.UtcNow }));
 
 app.Run();

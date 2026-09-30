@@ -10,8 +10,12 @@ import type {
   DecisionType,
   DecisionEvidenceKind,
   InviteCreatedDto,
+  BillingStatusDto,
+  BillingEventDto,
+  CheckoutDto,
   MembershipDto,
   MigrationDto,
+  ReconciliationReportDto,
   PackageAdoptionReport,
   PackageAssociationDto,
   PackageCollectionRunResult,
@@ -205,4 +209,14 @@ export const api = {
     request<TenantMemberDto>('POST', `/tenants/${tenantId}/members/${membershipId}/revoke`),
   runMigration: (tenantId: string) =>
     request<MigrationDto>('POST', `/tenants/${tenantId}/migrate`),
+  getBillingStatus: (tenantId: string) =>
+    request<BillingStatusDto>('GET', `/tenants/${tenantId}/billing`),
+  startCheckout: (tenantId: string, planId?: string | null) =>
+    request<CheckoutDto>('POST', `/tenants/${tenantId}/billing/checkout`, { planId: planId ?? null }),
+  cancelSubscription: (tenantId: string) =>
+    request<BillingStatusDto>('POST', `/tenants/${tenantId}/billing/cancel`, {}),
+  listBillingEvents: (tenantId: string) =>
+    request<BillingEventDto[]>('GET', `/tenants/${tenantId}/billing/events`),
+  reconcileBilling: (tenantId: string) =>
+    request<ReconciliationReportDto>('GET', `/tenants/${tenantId}/billing/reconcile`),
 };

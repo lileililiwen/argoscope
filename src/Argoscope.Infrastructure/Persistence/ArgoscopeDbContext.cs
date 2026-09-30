@@ -1,4 +1,5 @@
 using Argoscope.Domain.Alerts;
+using Argoscope.Domain.Billing;
 using Argoscope.Domain.Decisions;
 using Argoscope.Domain.Engagement;
 using Argoscope.Domain.Identity;
@@ -37,6 +38,9 @@ public sealed class ArgoscopeDbContext : DbContext
     public DbSet<SignalReview> SignalReviews => Set<SignalReview>();
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<TenantMembership> TenantMemberships => Set<TenantMembership>();
+    public DbSet<BillingCustomer> BillingCustomers => Set<BillingCustomer>();
+    public DbSet<BillingSubscription> BillingSubscriptions => Set<BillingSubscription>();
+    public DbSet<ProviderEvent> ProviderEvents => Set<ProviderEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -59,6 +63,9 @@ public sealed class ArgoscopeDbContext : DbContext
         modelBuilder.ApplyConfiguration(new SignalReviewConfiguration());
         modelBuilder.ApplyConfiguration(new TenantConfiguration());
         modelBuilder.ApplyConfiguration(new TenantMembershipConfiguration());
+        modelBuilder.ApplyConfiguration(new BillingCustomerConfiguration());
+        modelBuilder.ApplyConfiguration(new BillingSubscriptionConfiguration());
+        modelBuilder.ApplyConfiguration(new ProviderEventConfiguration());
     }
 }
 

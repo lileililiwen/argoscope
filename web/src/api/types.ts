@@ -418,3 +418,51 @@ export interface MigrationDto {
   total: number;
   tenantId: string;
 }
+
+export interface EntitlementDto {
+  planId: string;
+  planName: string;
+  canMutate: boolean;
+  maxPortfolios: number;
+  canUseAdvancedAnalytics: boolean;
+  canUseAlerts: boolean;
+  readOnlyReason: string | null;
+}
+
+export interface BillingStatusDto {
+  tenantId: string;
+  planId: string;
+  planName: string;
+  status: string;
+  effectiveAccess: string;
+  currentPeriodEndUtc: string;
+  cancelAtPeriodEnd: boolean;
+  version: number;
+  entitlements: EntitlementDto;
+  upgradeUrl: string;
+}
+
+export interface CheckoutDto {
+  tenantId: string;
+  providerCustomerId: string;
+  checkoutUrl: string;
+}
+
+export interface BillingEventDto {
+  providerEventId: string;
+  eventType: string;
+  state: string;
+  planId: string | null;
+  status: string | null;
+  providerCreatedAtUtc: string;
+  receivedAtUtc: string;
+  note: string | null;
+}
+
+export interface ReconciliationReportDto {
+  checked: number;
+  appliedEvents: number;
+  ignoredEvents: number;
+  attention: number;
+  findings: string[];
+}

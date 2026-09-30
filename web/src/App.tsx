@@ -13,6 +13,7 @@ import { Decisions } from './pages/Decisions';
 import { Alerts } from './pages/Alerts';
 import { Signals } from './pages/Signals';
 import { Tenants } from './pages/Tenants';
+import { Billing } from './pages/Billing';
 
 export default function App() {
   const [portfolios, setPortfolios] = useState<PortfolioDto[]>([]);
@@ -54,6 +55,7 @@ export default function App() {
           ) : null}
           <NavLink to="/new" className={({ isActive }) => isActive ? 'active' : ''}>New portfolio</NavLink>
           <NavLink to="/tenants" className={({ isActive }) => isActive ? 'active' : ''}>Tenants</NavLink>
+          <NavLink to="/billing" className={({ isActive }) => isActive ? 'active' : ''}>Billing</NavLink>
         </nav>
       </header>
       {error ? <div className="card error">Failed to load portfolios: {error}</div> : null}
@@ -61,6 +63,7 @@ export default function App() {
         <Route path="/" element={<Home portfolios={portfolios} onSelect={setSelectedId} onRefresh={refresh} />} />
         <Route path="/new" element={<NewPortfolio onCreated={(p) => { setSelectedId(p.id); refresh(); }} />} />
         <Route path="/tenants" element={<Tenants />} />
+        <Route path="/billing" element={<Billing />} />
         <Route path="/portfolios/:portfolioId/overview" element={<PortfolioShell><Overview /></PortfolioShell>} />
         <Route path="/portfolios/:portfolioId/repositories" element={<PortfolioShell><Repositories /></PortfolioShell>} />
         <Route path="/portfolios/:portfolioId/decisions" element={<PortfolioShell><Decisions /></PortfolioShell>} />
