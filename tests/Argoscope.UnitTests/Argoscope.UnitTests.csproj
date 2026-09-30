@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Argoscope.UnitTests</RootNamespace>
+    <AssemblyName>Argoscope.UnitTests</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Argoscope.Domain\Argoscope.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Argoscope.Application\Argoscope.Application.csproj" />
+    <ProjectReference Include="..\..\src\Argoscope.GitHub\Argoscope.GitHub.csproj" />
+  </ItemGroup>
+</Project>

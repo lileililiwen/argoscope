@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Argoscope.Api</RootNamespace>
+    <AssemblyName>Argoscope.Api</AssemblyName>
+    <UserSecretsId>argoscope-dev</UserSecretsId>
+    <Description>Argoscope self-hosted single-owner API.</Description>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Argoscope.Application\Argoscope.Application.csproj" />
+    <ProjectReference Include="..\Argoscope.Domain\Argoscope.Domain.csproj" />
+    <ProjectReference Include="..\Argoscope.GitHub\Argoscope.GitHub.csproj" />
+    <ProjectReference Include="..\Argoscope.Infrastructure\Argoscope.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

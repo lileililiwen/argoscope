@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Argoscope.Infrastructure</RootNamespace>
+    <AssemblyName>Argoscope.Infrastructure</AssemblyName>
+    <Description>Argoscope infrastructure: EF Core, PostgreSQL persistence, daily collection hosted service, deterministic clock.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Argoscope.Domain\Argoscope.Domain.csproj" />
+    <ProjectReference Include="..\Argoscope.Application\Argoscope.Application.csproj" />
+    <ProjectReference Include="..\Argoscope.GitHub\Argoscope.GitHub.csproj" />
+  </ItemGroup>
+</Project>

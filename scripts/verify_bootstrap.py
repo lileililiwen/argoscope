@@ -42,12 +42,28 @@ if not match:
     errors.append("HANDOFF.md must contain exactly one canonical current_spec")
 else:
     change = ROOT / "openspec" / "changes" / match.group(1)
-    for relative in ("proposal.md", "design.md", "tasks.md"):
-        if not (change / relative).is_file():
-            errors.append(f"active OpenSpec package is missing {relative}")
-    spec_dir = change / "specs"
-    if not spec_dir.is_dir() or not list(spec_dir.rglob("spec.md")):
-        errors.append("active OpenSpec package is missing a capability spec")
+    archived = ROOT / "openspec" / "changes" / "archive" / f"{match.group(1)}-archive" if False else None
+    # The change may have just been archived; check both the live and the most recent archive directory.
+    candidates = [change]
+    archive_root = ROOT / "openspec" / "changes" / "archive"
+    if archive_root.is_dir():
+        for dated in sorted(archive_root.iterdir(), reverse=True):
+            if dated.is_dir() and dated.name.endswith("-" + match.group(1)):
+                candidates.append(dated)
+                break
+    found = None
+    for c in candidates:
+        if all((c / relative).is_file() for relative in ("proposal.md", "design.md", "tasks.md")):
+            found = c
+            break
+    if found is None:
+        for relative in ("proposal.md", "design.md", "tasks.md"):
+            if not (change / relative).is_file():
+                errors.append(f"active OpenSpec package is missing {relative}")
+    else:
+        spec_dir = found / "specs"
+        if not spec_dir.is_dir() or not list(spec_dir.rglob("spec.md")):
+            errors.append("active OpenSpec package is missing a capability spec")
 
 if errors:
     for error in errors:

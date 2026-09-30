@@ -15,10 +15,15 @@ Star totals hide growth, community participation and stale data. An owner needs 
 | Package | Single outcome | Owner/project and language | Boundary/contract | Depends on | Independent oracle |
 |---|---|---|---|---|---|
 | github-portfolio-momentum-mvp | Compare and rank owned/competitor repositories from persisted GitHub snapshots | Argoscope; C#/.NET 10 and TypeScript/React | Portfolio → repository membership → provider observations/snapshots → deterministic metric/rank API | Product foundation | Fixed snapshot fixture yields reproducible velocities, engagement separation, peer comparisons and visible data coverage |
-| adoption-commercial-signals-and-journal | Add package/download adoption and reviewed commercial evidence with decision journal | Argoscope; C#/.NET 10 | Independent package provider, issue classification and journal contracts | MVP | Provider contracts and journal audit/readback tests |
-| portfolio-alerts-and-hosted-accounts | Deliver alerts and hosted multi-user operation | Argoscope; service/deployment boundary | Notification/account/tenant contracts | MVP | Tenant/security and delivery integration evidence |
+| package-adoption-metrics | Add attributed package activity observations | Argoscope; C#/.NET 10 | Package association and `IPackageMetricsProvider` | MVP | Provider fixtures prove units, intervals and idempotency |
+| commercial-signal-review | Human-review commercial issue/PR suggestions | Argoscope; C#/.NET 10 and TypeScript | Versioned signal suggestion/review contract | MVP | Classification and review transition tests |
+| portfolio-decision-journal | Preserve owner-authored portfolio decisions | Argoscope; C#/.NET 10 and TypeScript | Decision entry/revision and evidence references | MVP | Audit/readback tests |
+| portfolio-attention-alerts | Notify on deterministic metric conditions | Argoscope; C#/.NET 10 | Alert rules/evaluation/delivery attempts | MVP and phase-5 packages | Trigger, dedupe and delivery tests |
+| hosted-multiuser-identity | Authenticate users and isolate tenant data | Argoscope; C#/.NET 10 | Tenant principal and tenant-scoped authorization | MVP and phase-5 packages | Cross-tenant denial/isolation tests |
+| hosted-billing | Synchronize subscriptions and entitlements | Argoscope; C#/.NET 10 | Signed billing event and entitlement contract | hosted-multiuser-identity | Webhook/idempotency tests |
+| hosted-operations | Operate, recover and support hosted service | Argoscope; .NET 10 and deployment | Release, backup/restore and incident controls | hosted-multiuser-identity, hosted-billing | Restore and operational rehearsal |
 
-The MVP metrics and ranking share one snapshot state model and comparison workflow, so they form one usable vertical slice. Adoption sources, commercial classification, alerts, journal, hosted auth and billing have independent lifecycle/security/verification boundaries and are excluded.
+The MVP metrics and ranking share one snapshot state model and comparison workflow, so they form one usable vertical slice. Adoption sources, commercial classification, journal, alerts, tenant identity, billing and hosted operations have independent lifecycle/security/verification boundaries and are excluded. Roadmap order is MVP → the three phase-5 packages → phase-6 alert and hosted identity packages → billing → hosted operations; the phase-5 packages have no dependency on each other.
 
 ## Sibling and Shared Architecture Reconnaissance
 

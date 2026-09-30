@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Argoscope.Application</RootNamespace>
+    <AssemblyName>Argoscope.Application</AssemblyName>
+    <Description>Argoscope application services: collection orchestration, metric, engagement, benchmark and ranking logic.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Argoscope.Domain\Argoscope.Domain.csproj" />
+    <ProjectReference Include="..\Argoscope.GitHub\Argoscope.GitHub.csproj" />
+  </ItemGroup>
+</Project>

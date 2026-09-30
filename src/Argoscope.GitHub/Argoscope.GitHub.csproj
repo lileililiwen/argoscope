@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Argoscope.GitHub</RootNamespace>
+    <AssemblyName>Argoscope.GitHub</AssemblyName>
+    <Description>Argoscope GitHub provider adapters (REST/GraphQL), pagination, rate-limit and normalized result statuses. Contains FakeGitHubRepositoryProvider for tests.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Argoscope.Domain\Argoscope.Domain.csproj" />
+  </ItemGroup>
+</Project>
