@@ -3,6 +3,7 @@ using Argoscope.Application.Alerts;
 using Argoscope.Application.Analytics;
 using Argoscope.Application.Collection;
 using Argoscope.Application.Decisions;
+using Argoscope.Application.Identity;
 using Argoscope.Application.Packages;
 using Argoscope.Application.Portfolios;
 using Argoscope.Application.Ranking;
@@ -29,6 +30,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.Configure<GitHubProviderOptions>(builder.Configuration.GetSection("GitHub"));
+builder.Services.Configure<IdentityOptions>(builder.Configuration.GetSection(IdentityOptions.SectionName));
 builder.Services.Configure<DailyCollectionOptions>(builder.Configuration.GetSection("Argoscope:Collection"));
 builder.Services.Configure<PackageCollectionOptions>(builder.Configuration.GetSection("Argoscope:Packages"));
 
@@ -114,6 +116,18 @@ builder.Services.AddScoped<IAlertEvaluationStore, EfAlertEvaluationStore>();
 builder.Services.AddScoped<IDeliveryAttemptStore, EfDeliveryAttemptStore>();
 builder.Services.AddScoped<ICommercialSignalStore, EfCommercialSignalStore>();
 builder.Services.AddScoped<ISignalReviewStore, EfSignalReviewStore>();
+builder.Services.AddScoped<ITenantStore, EfTenantStore>();
+builder.Services.AddScoped<ITenantMembershipStore, EfTenantMembershipStore>();
+builder.Services.AddScoped<IPortfolioTenantStore, EfPortfolioTenantStore>();
+builder.Services.AddSingleton<OidcTokenValidator>();
+builder.Services.AddSingleton<ISessionStore>(sp =>
+{
+    var clock = sp.GetRequiredService<IClock>();
+    var identity = sp.GetRequiredService<IOptions<IdentityOptions>>().Value;
+    var hours = identity.SessionHours <= 0 ? 8 : identity.SessionHours;
+    return new InMemorySessionStore(clock, TimeSpan.FromHours(hours));
+});
+builder.Services.AddSingleton<TenantAuthorizationFilter>();
 builder.Services.AddSingleton<ISignalClassifier, KeywordSignalClassifier>();
 builder.Services.AddHttpClient<HttpDeliverySender>();
 builder.Services.AddScoped<IDeliverySender>(sp =>
@@ -129,6 +143,8 @@ builder.Services.AddScoped<PackageCollectionService>();
 builder.Services.AddScoped<DecisionService>();
 builder.Services.AddScoped<AlertService>();
 builder.Services.AddScoped<CommercialSignalService>();
+builder.Services.AddScoped<TenantService>();
+builder.Services.AddScoped<TenantMigrationService>();
 
 // Daily collection jobs (only when the real provider is configured).
 if (!string.IsNullOrWhiteSpace(ghToken))
@@ -181,6 +197,7 @@ app.MapFallback(async ctx =>
     ctx.Response.StatusCode = StatusCodes.Status404NotFound;
 });
 app.MapArgoscopeApi();
+app.MapIdentityApi();
 app.MapGet("/api/v1/health", () => Results.Ok(new { status = "ok", time = DateTimeOffset.UtcNow }));
 
 app.Run();

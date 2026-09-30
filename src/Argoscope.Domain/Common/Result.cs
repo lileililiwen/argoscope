@@ -16,6 +16,8 @@ public readonly record struct Error(string Code, string Message, string? Target 
     public static Error Unauthorized(string message) => new("unauthorized", message);
 
     public static Error Forbidden(string message) => new("forbidden", message);
+
+    public static Error Unavailable(string message) => new("unavailable", message);
 }
 
 /// <summary>

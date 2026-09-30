@@ -55,9 +55,10 @@ public static class ArgoscopeApiModule
     public static IEndpointRouteBuilder MapArgoscopeApi(this IEndpointRouteBuilder builder)
     {
         var v1 = builder.MapGroup("/api/v1").WithGroupName("argoscope");
+        v1.AddEndpointFilter<TenantAuthorizationFilter>();
 
-        v1.MapPost("/portfolios", (CreatePortfolioRequest request, PortfolioService svc, CancellationToken ct) => CreatePortfolioAsync(request, svc, ct));
-        v1.MapGet("/portfolios", (IPortfolioRepository repo, CancellationToken ct) => ListPortfoliosAsync(repo, ct));
+        v1.MapPost("/portfolios", (CreatePortfolioRequest request, HttpContext http, PortfolioService svc, CancellationToken ct) => CreatePortfolioAsync(request, http, svc, ct));
+        v1.MapGet("/portfolios", (HttpContext http, IPortfolioRepository repo, CancellationToken ct) => ListPortfoliosAsync(http, repo, ct));
         v1.MapGet("/portfolios/{portfolioId:guid}", (Guid portfolioId, IPortfolioRepository repo, CancellationToken ct) => GetPortfolioAsync(portfolioId, repo, ct));
         v1.MapPost("/portfolios/{portfolioId:guid}/repositories", (Guid portfolioId, AddRepositoryRequest request, PortfolioService svc, CancellationToken ct) => AddRepositoryAsync(portfolioId, request, svc, ct));
         v1.MapGet("/portfolios/{portfolioId:guid}/repositories", (Guid portfolioId, PortfolioService svc, CancellationToken ct) => ListRepositoriesAsync(portfolioId, svc, ct));
@@ -113,13 +114,14 @@ public static class ArgoscopeApiModule
         return builder;
     }
 
-    private static async Task<IResult> CreatePortfolioAsync(CreatePortfolioRequest request, PortfolioService svc, CancellationToken ct)
+    private static async Task<IResult> CreatePortfolioAsync(CreatePortfolioRequest request, HttpContext http, PortfolioService svc, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request?.Name))
         {
             return Problem(StatusCodes.Status400BadRequest, "validation", "Name is required.");
         }
-        var result = await svc.CreateAsync(new CreatePortfolioCommand(request.Name, DateTimeOffset.UtcNow), ct).ConfigureAwait(false);
+        var principal = TenantHttp.GetPrincipal(http);
+        var result = await svc.CreateAsync(new CreatePortfolioCommand(request.Name, DateTimeOffset.UtcNow, principal?.TenantId), ct).ConfigureAwait(false);
         if (!result.IsSuccess)
         {
             return Problem(StatusCodes.Status400BadRequest, result.Error!.Value.Code, result.Error.Value.Message);
@@ -127,14 +129,19 @@ public static class ArgoscopeApiModule
         return Results.Created($"/api/v1/portfolios/{result.Value.Id}", result.Value);
     }
 
-    private static async Task<IResult> ListPortfoliosAsync(IPortfolioRepository portfolioRepository, CancellationToken ct)
+    private static async Task<IResult> ListPortfoliosAsync(HttpContext http, IPortfolioRepository portfolioRepository, CancellationToken ct)
     {
+        var principal = TenantHttp.GetPrincipal(http);
         var ids = await portfolioRepository.ListAllAsync(ct).ConfigureAwait(false);
         var list = new List<PortfolioDto>();
         foreach (var id in ids)
         {
             var dto = await GetPortfolioInternalAsync(id, portfolioRepository, ct).ConfigureAwait(false);
-            if (dto is not null) list.Add(dto);
+            // Hosted mode lists only the caller's tenant; SingleOwner mode
+            // (no principal) preserves the legacy full listing.
+            if (dto is null) continue;
+            if (principal is not null && dto.TenantId != principal.TenantId.Value) continue;
+            list.Add(dto);
         }
         return Results.Ok(list);
     }
@@ -142,7 +149,7 @@ public static class ArgoscopeApiModule
     private static async Task<PortfolioDto?> GetPortfolioInternalAsync(Id<Portfolio> id, IPortfolioRepository repo, CancellationToken ct)
     {
         var p = await repo.FindAsync(id, ct).ConfigureAwait(false);
-        return p is null ? null : new PortfolioDto(p.Id.Value, p.Name, p.CreatedAtUtc, p.UpdatedAtUtc);
+        return p is null ? null : new PortfolioDto(p.Id.Value, p.Name, p.CreatedAtUtc, p.UpdatedAtUtc, p.TenantId?.Value);
     }
 
     private static async Task<IResult> GetPortfolioAsync(Guid portfolioId, IPortfolioRepository portfolioRepository, CancellationToken ct)

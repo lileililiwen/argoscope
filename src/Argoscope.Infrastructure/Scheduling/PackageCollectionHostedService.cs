@@ -1,4 +1,5 @@
 using Argoscope.Application.Collection;
+using Argoscope.Application.Identity;
 using Argoscope.Application.Packages;
 using Argoscope.Domain.Common;
 using Argoscope.Domain.Packages;
@@ -115,6 +116,13 @@ public sealed class PackageCollectionHostedService : BackgroundService
         // treats package adoption as repository-scoped, not
         // portfolio-scoped (a single repository may be added to
         // multiple portfolios with different roles).
+        // Hosted runs resolve each portfolio's tenant explicitly and skip
+        // unscoped rows until migration; per-tenant attribution is logged.
+        var identity = scope.ServiceProvider.GetRequiredService<IOptions<IdentityOptions>>().Value;
+        var tenantStore = scope.ServiceProvider.GetRequiredService<IPortfolioTenantStore>();
+        var tenantByPortfolio = (await tenantStore
+            .ListAllPortfoliosAsync(cancellationToken).ConfigureAwait(false))
+            .ToDictionary(p => p.Id, p => p.TenantId);
         var allRepos = await scope.ServiceProvider
             .GetRequiredService<IPortfolioRepository>()
             .ListAllAsync(cancellationToken)
@@ -122,37 +130,47 @@ public sealed class PackageCollectionHostedService : BackgroundService
         var totalWritten = 0;
         foreach (var portfolioId in allRepos)
         {
-            var repoList = await repoStore.ListByPortfolioAsync(portfolioId, cancellationToken).ConfigureAwait(false);
-            foreach (var repo in repoList)
+            tenantByPortfolio.TryGetValue(portfolioId, out var tenantId);
+            if (identity.IsHosted && tenantId is null)
             {
-                var assocs = await associations.ListByRepositoryAsync(repo.Id, cancellationToken).ConfigureAwait(false);
-                foreach (var assoc in assocs)
+                _logger.LogWarning("Skipping package collection for unassigned portfolio {PortfolioId}; hosted access requires migration.", portfolioId.Value);
+                continue;
+            }
+
+            using (_logger.BeginScope(TenantJobScope.LogScope(tenantId, portfolioId.Value)))
+            {
+                var repoList = await repoStore.ListByPortfolioAsync(portfolioId, cancellationToken).ConfigureAwait(false);
+                foreach (var repo in repoList)
                 {
-                    if (assoc.Status == PackageAssociationStatus.Removed) continue;
-                    try
+                    var assocs = await associations.ListByRepositoryAsync(repo.Id, cancellationToken).ConfigureAwait(false);
+                    foreach (var assoc in assocs)
                     {
-                        var result = await collection.RunAsync(
-                            new PackageCollectionRequest(
-                                repo.Id, assoc.Id, assoc.Provider, assoc.Coordinate,
-                                assoc.DefaultUnit, assoc.DefaultWindow, now),
-                            cancellationToken).ConfigureAwait(false);
-                        totalWritten += result.ObservationsWritten;
-                        if (result.PageStatus is ProviderResultStatus.RateLimited
-                            or ProviderResultStatus.Unauthorized
-                            or ProviderResultStatus.Forbidden
-                            or ProviderResultStatus.Unavailable
-                            or ProviderResultStatus.Malformed
-                            or ProviderResultStatus.NotFound)
+                        if (assoc.Status == PackageAssociationStatus.Removed) continue;
+                        try
                         {
-                            _logger.LogWarning(
-                                "Package collection for {Provider}/{Coordinate} returned {Status}",
-                                assoc.Provider, assoc.Coordinate, result.PageStatus);
+                            var result = await collection.RunAsync(
+                                new PackageCollectionRequest(
+                                    repo.Id, assoc.Id, assoc.Provider, assoc.Coordinate,
+                                    assoc.DefaultUnit, assoc.DefaultWindow, now),
+                                cancellationToken).ConfigureAwait(false);
+                            totalWritten += result.ObservationsWritten;
+                            if (result.PageStatus is ProviderResultStatus.RateLimited
+                                or ProviderResultStatus.Unauthorized
+                                or ProviderResultStatus.Forbidden
+                                or ProviderResultStatus.Unavailable
+                                or ProviderResultStatus.Malformed
+                                or ProviderResultStatus.NotFound)
+                            {
+                                _logger.LogWarning(
+                                    "Package collection for {Provider}/{Coordinate} returned {Status}",
+                                    assoc.Provider, assoc.Coordinate, result.PageStatus);
+                            }
                         }
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        _logger.LogError(ex, "Package collection for {Provider}/{Coordinate} threw",
-                            assoc.Provider, assoc.Coordinate);
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            _logger.LogError(ex, "Package collection for {Provider}/{Coordinate} threw",
+                                assoc.Provider, assoc.Coordinate);
+                        }
                     }
                 }
             }

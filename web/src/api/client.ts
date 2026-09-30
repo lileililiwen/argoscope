@@ -9,7 +9,9 @@ import type {
   DecisionRevisionDto,
   DecisionType,
   DecisionEvidenceKind,
+  InviteCreatedDto,
   MembershipDto,
+  MigrationDto,
   PackageAdoptionReport,
   PackageAssociationDto,
   PackageCollectionRunResult,
@@ -21,6 +23,9 @@ import type {
   RepositoryMetrics,
   ScoreConfigurationDto,
   SignalReviewDto,
+  TenantDto,
+  TenantMemberDto,
+  TenantRole,
 } from './types';
 
 const base = '/api/v1';
@@ -184,4 +189,20 @@ export const api = {
     correctedCategory?: string | null;
     note?: string | null;
   }) => request<CommercialSignalDto>('PATCH', `/repositories/${repositoryId}/commercial-signals/${signalId}/review`, body),
+  createTenant: (body: { name: string; ownerSubject: string; ownerDisplayName?: string | null }) =>
+    request<TenantDto>('POST', '/tenants', body),
+  getTenant: (tenantId: string) =>
+    request<TenantDto>('GET', `/tenants/${tenantId}`),
+  listMembers: (tenantId: string) =>
+    request<TenantMemberDto[]>('GET', `/tenants/${tenantId}/members`),
+  inviteMember: (tenantId: string, body: { displayName: string; role: TenantRole }) =>
+    request<InviteCreatedDto>('POST', `/tenants/${tenantId}/invites`, body),
+  acceptInvite: (body: { token: string; subject: string }) =>
+    request<TenantMemberDto>('POST', '/invites/accept', body),
+  changeRole: (tenantId: string, membershipId: string, role: TenantRole) =>
+    request<TenantMemberDto>('PUT', `/tenants/${tenantId}/members/${membershipId}`, { role }),
+  revokeMember: (tenantId: string, membershipId: string) =>
+    request<TenantMemberDto>('POST', `/tenants/${tenantId}/members/${membershipId}/revoke`),
+  runMigration: (tenantId: string) =>
+    request<MigrationDto>('POST', `/tenants/${tenantId}/migrate`),
 };

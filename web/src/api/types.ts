@@ -385,3 +385,36 @@ export interface CollectSignalsResultDto {
   retried: number;
   markedUnavailable: number;
 }
+
+export type TenantRole = 'Owner' | 'Editor' | 'Viewer';
+export type MembershipState = 'Invited' | 'Active' | 'Revoked';
+
+export interface TenantDto {
+  tenantId: string;
+  name: string;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface TenantMemberDto {
+  membershipId: string;
+  tenantId: string;
+  subject: string;
+  displayName: string;
+  role: TenantRole;
+  state: MembershipState;
+  inviteExpiresAtUtc: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string;
+}
+
+export interface InviteCreatedDto {
+  member: TenantMemberDto;
+  inviteToken: string | null;
+}
+
+export interface MigrationDto {
+  assigned: number;
+  total: number;
+  tenantId: string;
+}

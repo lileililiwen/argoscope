@@ -1,6 +1,7 @@
 using Argoscope.Domain.Alerts;
 using Argoscope.Domain.Decisions;
 using Argoscope.Domain.Engagement;
+using Argoscope.Domain.Identity;
 using Argoscope.Domain.Memberships;
 using Argoscope.Domain.Packages;
 using Argoscope.Domain.Portfolios;
@@ -34,6 +35,8 @@ public sealed class ArgoscopeDbContext : DbContext
     public DbSet<DeliveryAttempt> DeliveryAttempts => Set<DeliveryAttempt>();
     public DbSet<CommercialSignal> CommercialSignals => Set<CommercialSignal>();
     public DbSet<SignalReview> SignalReviews => Set<SignalReview>();
+    public DbSet<Tenant> Tenants => Set<Tenant>();
+    public DbSet<TenantMembership> TenantMemberships => Set<TenantMembership>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -54,6 +57,8 @@ public sealed class ArgoscopeDbContext : DbContext
         modelBuilder.ApplyConfiguration(new DeliveryAttemptConfiguration());
         modelBuilder.ApplyConfiguration(new CommercialSignalConfiguration());
         modelBuilder.ApplyConfiguration(new SignalReviewConfiguration());
+        modelBuilder.ApplyConfiguration(new TenantConfiguration());
+        modelBuilder.ApplyConfiguration(new TenantMembershipConfiguration());
     }
 }
 
@@ -65,6 +70,10 @@ public sealed class PortfolioConfiguration : IEntityTypeConfiguration<Portfolio>
         b.HasKey(p => p.Id);
         b.Property(p => p.Id).HasConversion(v => v.Value, v => Domain.Common.Id<Portfolio>.From(v));
         b.Property(p => p.Name).HasMaxLength(200).IsRequired();
+        b.Property(p => p.TenantId).HasConversion(
+            v => v.HasValue ? v.Value.Value : (Guid?)null,
+            v => v.HasValue ? Domain.Common.Id<Domain.Identity.Tenant>.From(v.Value) : (Domain.Common.Id<Domain.Identity.Tenant>?)null);
+        b.HasIndex(p => p.TenantId);
         b.Property(p => p.CreatedAtUtc).IsRequired();
         b.Property(p => p.UpdatedAtUtc).IsRequired();
     }
@@ -425,5 +434,39 @@ public sealed class SignalReviewConfiguration : IEntityTypeConfiguration<SignalR
         b.Property(r => r.Note).HasMaxLength(SignalReview.MaxNoteLength);
         b.HasIndex(r => new { r.SignalId, r.RevisionNumber }).IsUnique();
         b.HasIndex(r => r.SignalId);
+    }
+}
+
+public sealed class TenantConfiguration : IEntityTypeConfiguration<Tenant>
+{
+    public void Configure(EntityTypeBuilder<Tenant> b)
+    {
+        b.ToTable("tenants");
+        b.HasKey(t => t.Id);
+        b.Property(t => t.Id).HasConversion(v => v.Value, v => Domain.Common.Id<Tenant>.From(v));
+        b.Property(t => t.Name).HasMaxLength(Tenant.MaxNameLength).IsRequired();
+        b.Property(t => t.CreatedAtUtc).IsRequired();
+        b.Property(t => t.UpdatedAtUtc).IsRequired();
+    }
+}
+
+public sealed class TenantMembershipConfiguration : IEntityTypeConfiguration<TenantMembership>
+{
+    public void Configure(EntityTypeBuilder<TenantMembership> b)
+    {
+        b.ToTable("tenant_memberships");
+        b.HasKey(m => m.Id);
+        b.Property(m => m.Id).HasConversion(v => v.Value, v => Domain.Common.Id<TenantMembership>.From(v));
+        b.Property(m => m.TenantId).HasConversion(v => v.Value, v => Domain.Common.Id<Tenant>.From(v));
+        b.Property(m => m.Subject).HasMaxLength(TenantMembership.MaxSubjectLength).IsRequired();
+        b.Property(m => m.DisplayName).HasMaxLength(TenantMembership.MaxDisplayNameLength).IsRequired();
+        b.Property(m => m.Role).HasConversion<int>();
+        b.Property(m => m.State).HasConversion<int>();
+        b.Property(m => m.InviteToken).HasMaxLength(100);
+        b.Property(m => m.InviteExpiresAtUtc);
+        b.Property(m => m.CreatedAtUtc).IsRequired();
+        b.Property(m => m.UpdatedAtUtc).IsRequired();
+        b.HasIndex(m => m.TenantId);
+        b.HasIndex(m => new { m.TenantId, m.Subject });
     }
 }

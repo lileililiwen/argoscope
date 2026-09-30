@@ -1,4 +1,5 @@
 using Argoscope.Application.Collection;
+using Argoscope.Application.Identity;
 using Argoscope.Domain.Common;
 using Argoscope.Domain.Memberships;
 using Argoscope.Domain.Portfolios;
@@ -104,34 +105,51 @@ public sealed class DailyCollectionHostedService : BackgroundService
         var repoStore = scope.ServiceProvider.GetRequiredService<IRepositoryStore>();
         var memberships = scope.ServiceProvider.GetRequiredService<IMembershipStore>();
         var collection = scope.ServiceProvider.GetRequiredService<CollectionService>();
+        var identity = scope.ServiceProvider.GetRequiredService<IOptions<IdentityOptions>>().Value;
+        var tenantStore = scope.ServiceProvider.GetRequiredService<IPortfolioTenantStore>();
+        var tenantByPortfolio = (await tenantStore
+            .ListAllPortfoliosAsync(cancellationToken).ConfigureAwait(false))
+            .ToDictionary(p => p.Id, p => p.TenantId);
         var portfolios = await portfolioRepo.ListAllAsync(cancellationToken).ConfigureAwait(false);
         var now = _clock.UtcNow;
         var today = DateOnly.FromDateTime(now.UtcDateTime);
         var totalSnapshots = 0;
         foreach (var portfolio in portfolios)
         {
-            var ms = await memberships.ListByPortfolioAsync(portfolio, cancellationToken).ConfigureAwait(false);
-            foreach (var m in ms)
+            tenantByPortfolio.TryGetValue(portfolio, out var tenantId);
+            // Hosted jobs carry an explicit tenant id and never fall back
+            // to a global query: unscoped rows are skipped until migration.
+            if (identity.IsHosted && tenantId is null)
             {
-                var repo = await repoStore.FindAsync(m.RepositoryId, cancellationToken).ConfigureAwait(false);
-                if (repo is null) continue;
-                try
+                _logger.LogWarning("Skipping collection for unassigned portfolio {PortfolioId}; hosted access requires migration.", portfolio.Value);
+                continue;
+            }
+
+            using (_logger.BeginScope(TenantJobScope.LogScope(tenantId, portfolio.Value)))
+            {
+                var ms = await memberships.ListByPortfolioAsync(portfolio, cancellationToken).ConfigureAwait(false);
+                foreach (var m in ms)
                 {
-                    var result = await collection.RunAsync(new CollectionRequest(portfolio, repo.OwnerLogin, repo.Name, today, now), cancellationToken).ConfigureAwait(false);
-                    totalSnapshots += result.SnapshotsWritten;
-                    if (result.MetricsStatus is ProviderResultStatus.RateLimited
-                        or ProviderResultStatus.Unauthorized
-                        or ProviderResultStatus.Forbidden
-                        or ProviderResultStatus.NotFound
-                        or ProviderResultStatus.Unavailable
-                        or ProviderResultStatus.Malformed)
+                    var repo = await repoStore.FindAsync(m.RepositoryId, cancellationToken).ConfigureAwait(false);
+                    if (repo is null) continue;
+                    try
                     {
-                        _logger.LogWarning("Collection for {Owner}/{Name} returned {Status}", repo.OwnerLogin, repo.Name, result.MetricsStatus);
+                        var result = await collection.RunAsync(new CollectionRequest(portfolio, repo.OwnerLogin, repo.Name, today, now), cancellationToken).ConfigureAwait(false);
+                        totalSnapshots += result.SnapshotsWritten;
+                        if (result.MetricsStatus is ProviderResultStatus.RateLimited
+                            or ProviderResultStatus.Unauthorized
+                            or ProviderResultStatus.Forbidden
+                            or ProviderResultStatus.NotFound
+                            or ProviderResultStatus.Unavailable
+                            or ProviderResultStatus.Malformed)
+                        {
+                            _logger.LogWarning("Collection for {Owner}/{Name} returned {Status}", repo.OwnerLogin, repo.Name, result.MetricsStatus);
+                        }
                     }
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    _logger.LogError(ex, "Collection for {Owner}/{Name} threw", repo.OwnerLogin, repo.Name);
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _logger.LogError(ex, "Collection for {Owner}/{Name} threw", repo.OwnerLogin, repo.Name);
+                    }
                 }
             }
         }

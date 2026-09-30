@@ -7,7 +7,7 @@ using Argoscope.Application.Collection;
 namespace Argoscope.Application.Portfolios;
 
 /// <summary>Inputs for creating a portfolio.</summary>
-public sealed record CreatePortfolioCommand(string Name, DateTimeOffset Now);
+public sealed record CreatePortfolioCommand(string Name, DateTimeOffset Now, Domain.Common.Id<Domain.Identity.Tenant>? TenantId = null);
 
 /// <summary>Inputs for adding a repository to a portfolio.</summary>
 public sealed record AddRepositoryCommand(
@@ -29,7 +29,7 @@ public sealed record UpdateMembershipCommand(
     DateTimeOffset Now);
 
 public sealed record PortfolioDto(
-    Guid Id, string Name, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc);
+    Guid Id, string Name, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, Guid? TenantId = null);
 
 public sealed record MembershipDto(
     Guid MembershipId,
@@ -68,6 +68,10 @@ public sealed class PortfolioService
     public async Task<Result<PortfolioDto>> CreateAsync(CreatePortfolioCommand command, CancellationToken cancellationToken)
     {
         var portfolio = new Portfolio(command.Name, command.Now);
+        if (command.TenantId.HasValue)
+        {
+            portfolio.AssignTenant(command.TenantId.Value, command.Now);
+        }
         // The store is not in the read-side interface; the infrastructure layer
         // will register a write-side store. For now, cast the same interface to
         // a write method (kept implicit to keep this layer pure).
@@ -76,13 +80,13 @@ public sealed class PortfolioService
             return Error.Validation("Write-side portfolio repository is not configured.");
         }
         await writer.AddAsync(portfolio, cancellationToken).ConfigureAwait(false);
-        return new PortfolioDto(portfolio.Id.Value, portfolio.Name, portfolio.CreatedAtUtc, portfolio.UpdatedAtUtc);
+        return new PortfolioDto(portfolio.Id.Value, portfolio.Name, portfolio.CreatedAtUtc, portfolio.UpdatedAtUtc, portfolio.TenantId?.Value);
     }
 
     public async Task<PortfolioDto?> GetAsync(Id<Portfolio> portfolioId, CancellationToken cancellationToken)
     {
         var p = await _portfolios.FindAsync(portfolioId, cancellationToken).ConfigureAwait(false);
-        return p is null ? null : new PortfolioDto(p.Id.Value, p.Name, p.CreatedAtUtc, p.UpdatedAtUtc);
+        return p is null ? null : new PortfolioDto(p.Id.Value, p.Name, p.CreatedAtUtc, p.UpdatedAtUtc, p.TenantId?.Value);
     }
 
     public async Task<Result<MembershipDto>> AddRepositoryAsync(AddRepositoryCommand command, CancellationToken cancellationToken)
